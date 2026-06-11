@@ -215,7 +215,11 @@ def ptcl_config_map(args):
     adaptive = adaptive_flags(args)
     return {
         "baseline": runall2.VPN_MSHR_BASELINE_FLAGS[:],
+        "gmmu_prefetch": (
+            runall2.VPN_MSHR_BASELINE_FLAGS[:] + runall2.GMMU_PREFETCH_FLAGS[:]
+        ),
         "ptcl_mode": adaptive,
+        "pasta": adaptive + runall2.GMMU_PREFETCH_FLAGS[:],
         "coalescing": (
             runall2.VPN_MSHR_BASELINE_FLAGS[:] + runall2.COALESCING_FLAGS[:]
         ),

@@ -31,6 +31,11 @@ type Builder struct {
 	initialPTCL            bool
 	perVPNMSHR             bool
 	pteLookupLatencyCycles int
+	prefetchEnabled        bool
+	prefetchAdmission      int
+	prefetchMaxLearners    int
+	prefetchLookahead      int
+	prefetchMaxCandidates  int
 }
 
 // MakeBuilder returns a Builder
@@ -46,6 +51,10 @@ func MakeBuilder() Builder {
 		ptclLowThres:           2,
 		initialPTCL:            true,
 		pteLookupLatencyCycles: 32,
+		prefetchAdmission:      6,
+		prefetchMaxLearners:    4,
+		prefetchLookahead:      2,
+		prefetchMaxCandidates:  4,
 	}
 }
 
@@ -72,6 +81,31 @@ func (b Builder) WithPerVPNMSHRBaseline(enabled bool) Builder {
 
 func (b Builder) WithPTELookupLatencyCycles(cycles int) Builder {
 	b.pteLookupLatencyCycles = cycles
+	return b
+}
+
+func (b Builder) WithTranslationPrefetcher(enabled bool) Builder {
+	b.prefetchEnabled = enabled
+	return b
+}
+
+func (b Builder) WithPrefetchAdmissionThreshold(threshold int) Builder {
+	b.prefetchAdmission = threshold
+	return b
+}
+
+func (b Builder) WithPrefetchMaxLearners(maxLearners int) Builder {
+	b.prefetchMaxLearners = maxLearners
+	return b
+}
+
+func (b Builder) WithPrefetchLookahead(lookahead int) Builder {
+	b.prefetchLookahead = lookahead
+	return b
+}
+
+func (b Builder) WithPrefetchMaxCandidatesPerReq(limit int) Builder {
+	b.prefetchMaxCandidates = limit
 	return b
 }
 
@@ -187,6 +221,15 @@ func (b Builder) Build(name string) *GMMUTLB {
 	tlb.vpnMSHRBaseline = b.perVPNMSHR
 	tlb.gmmuCacheTable = b.gmmuCacheTable
 	tlb.pteLookupLatencyCycles = b.pteLookupLatencyCycles
+	tlb.prefetcher = newTranslationPrefetcher(
+		b.prefetchEnabled,
+		false,
+		b.prefetchAdmission,
+		b.prefetchMaxLearners,
+		b.prefetchLookahead,
+		b.prefetchMaxCandidates,
+	)
+	tlb.initPrefetchState()
 	lowThres := b.ptclLowThres
 	highThres := b.ptclHighThres
 	if lowThres > highThres {

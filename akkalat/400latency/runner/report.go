@@ -299,9 +299,18 @@ func (r *Runner) reportGMMUCacheHitRate() {
 			tracer.gmmuCache.PTELookupDelayStats()
 		pteLookupMaxInflight, pteLookupMaxWaiting :=
 			tracer.gmmuCache.PTELookupQueueStats()
+		prefetchEnabled, _, generated, enqueued, dropped, rejectedByPrefix,
+			rejectedByDuplicate, rejectedByInvalid, noClearPatternSkips, admitted, _ :=
+			tracer.gmmuCache.PrefetchStats()
+		prefetchCompleted, prefetchUseful, prefetchLate, prefetchLost :=
+			tracer.gmmuCache.PrefetchOutcomeStats()
 		ptclModeEnabled := 0.0
 		if tracer.gmmuCache.PTCLModeEnabled() {
 			ptclModeEnabled = 1.0
+		}
+		prefetchEnabledFloat := 0.0
+		if prefetchEnabled {
+			prefetchEnabledFloat = 1.0
 		}
 		vpnMSHRBaselineEnabled := 0.0
 		if tracer.gmmuCache.VPNMSHRBaselineEnabled() {
@@ -367,6 +376,68 @@ func (r *Runner) reportGMMUCacheHitRate() {
 			tracer.gmmuCache.Name(),
 			"pte_lookup_waiting_max_len",
 			float64(pteLookupMaxWaiting),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(), "prefetch_enabled", prefetchEnabledFloat)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_generated_candidates",
+			float64(generated),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_enqueued_candidates",
+			float64(enqueued),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_dropped_candidates",
+			float64(dropped),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_rejected_by_prefix_filter",
+			float64(rejectedByPrefix),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_rejected_by_duplicate_filter",
+			float64(rejectedByDuplicate),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_rejected_by_invalid_target",
+			float64(rejectedByInvalid),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_admitted_learners",
+			float64(admitted),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_no_clear_pattern_skips",
+			float64(noClearPatternSkips),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_completed_fills",
+			float64(prefetchCompleted),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_useful_hits",
+			float64(prefetchUseful),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_late_demands",
+			float64(prefetchLate),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_lost_before_use",
+			float64(prefetchLost),
 		)
 
 		hit := tracer.tracer.GetStepCount("hit")

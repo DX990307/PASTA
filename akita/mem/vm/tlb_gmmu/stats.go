@@ -51,3 +51,46 @@ func (tlb *GMMUTLB) PTELookupDelayStats() (count int, cycles int) {
 func (tlb *GMMUTLB) PTELookupQueueStats() (maxInflight, maxWaiting int) {
 	return tlb.pteLookupMaxInflight, tlb.pteLookupMaxWaiting
 }
+
+// PrefetchStats reports whether the GMMU-side prefetcher is enabled and how
+// many candidates it generated, issued, or rejected.
+func (tlb *GMMUTLB) PrefetchStats() (
+	enabled bool,
+	demandPTCLReturn bool,
+	generated int,
+	enqueued int,
+	dropped int,
+	rejectedByPrefix int,
+	rejectedByDuplicate int,
+	rejectedByInvalid int,
+	noClearPatternSkips int,
+	admitted int,
+	promoted int,
+) {
+	if tlb.prefetcher == nil {
+		return false, false, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	}
+
+	return tlb.prefetcher.enabled,
+		tlb.prefetcher.promoteDemandToPTCL,
+		tlb.prefetcher.generatedCandidates,
+		tlb.prefetcher.enqueuedCandidates,
+		tlb.prefetcher.droppedCandidates,
+		tlb.prefetcher.rejectedByPrefix,
+		tlb.prefetcher.rejectedByDuplicate,
+		tlb.prefetcher.rejectedByInvalid,
+		tlb.prefetcher.noClearPatternSkips,
+		tlb.prefetcher.admittedLearnersCount,
+		tlb.prefetcher.promotedDemandRequests
+}
+
+// PrefetchOutcomeStats reports the observed completion count for GMMU-side
+// prefetches. Useful/late/lost are kept for metric compatibility.
+func (tlb *GMMUTLB) PrefetchOutcomeStats() (
+	completed int,
+	useful int,
+	late int,
+	lostBeforeUse int,
+) {
+	return tlb.prefetchCompletedCount, 0, 0, 0
+}

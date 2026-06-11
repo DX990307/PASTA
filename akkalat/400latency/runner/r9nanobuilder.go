@@ -629,6 +629,11 @@ func (b *R9NanoGPUBuilder) buildGMMUCache() {
 		WithInitialPTCLMode(*gmmuInitialPTCLMode).
 		WithPerVPNMSHRBaseline(*gmmuVPNMSHRBaseline).
 		WithPTELookupLatencyCycles(*gmmuPTELookupLatency).
+		WithTranslationPrefetcher(*gmmuPrefetch).
+		WithPrefetchAdmissionThreshold(*gmmuPrefetchAdmission).
+		WithPrefetchMaxLearners(*gmmuPrefetchMaxLearners).
+		WithPrefetchLookahead(*gmmuPrefetchLookahead).
+		WithPrefetchMaxCandidatesPerReq(*gmmuPrefetchMaxCandidates).
 		WithGMMUCacheTable(b.gmmuCacheTable)
 
 	gmmuCache := builder.Build(fmt.Sprintf("%s.L2TLB", b.gpuName))

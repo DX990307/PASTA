@@ -59,6 +59,11 @@ type GMMUTLB struct {
 	pteLookupDelayCycles   int
 	pteLookupMaxInflight   int
 	pteLookupMaxWaiting    int
+	prefetcher             *translationPrefetcher
+	inflightPrefetches     map[prefetchTargetKey]struct{}
+	prefetchReqStates      map[string]*prefetchReqState
+	prefetchOutcomeByBlock map[uint64]*prefetchOutcomeCounts
+	prefetchCompletedCount int
 
 	isPaused       bool
 	DeviceID       uint64
@@ -105,6 +110,7 @@ func (tlb *GMMUTLB) reset() {
 	tlb.pteLookupDelayCycles = 0
 	tlb.pteLookupMaxInflight = 0
 	tlb.pteLookupMaxWaiting = 0
+	tlb.resetPrefetchState()
 }
 
 // Tick defines how TLB update states at each cycle
@@ -239,6 +245,7 @@ func (tlb *GMMUTLB) handleTranslationMiss(
 	mshrEntry := tlb.mshr.Add(mshrReq.PID, mshrReq.VAddr, now, 0)
 	mshrEntry.Requests = append(mshrEntry.Requests, mshrReq)
 	tlb.enqueuePTELookupJobsWithBitmap(now, mshrReq, mshrEntry, lookupBitmap)
+	tlb.maybeEnqueuePrefetches(now, mshrReq)
 
 	tlb.topPort.Retrieve(now)
 
@@ -286,6 +293,7 @@ func (tlb *GMMUTLB) processTLBMSHRHit(
 	tlb.mshr.UpdateUpLevelBitMap(mshrReq.PID, mshrReq.VAddr, now, 0)
 	mshrEntry.Requests = append(mshrEntry.Requests, mshrReq)
 	tlb.enqueuePTELookupJobs(now, mshrReq, mshrEntry)
+	tlb.maybeEnqueuePrefetches(now, mshrReq)
 
 	tlb.topPort.Retrieve(now)
 
@@ -756,6 +764,14 @@ func (tlb *GMMUTLB) processRsp(
 ) bool {
 	page := rsp.Page
 
+	if rsp.IsPrefetch {
+		if !tlb.handlePrefetchRsp(now, rsp) {
+			return false
+		}
+		tlb.retrieveRsp(now, bottom)
+		return true
+	}
+
 	if tlb.completePTCLRepresentativeRsp(now, page) {
 		tlb.retrieveRsp(now, bottom)
 		return true
@@ -901,7 +917,8 @@ func (tlb *GMMUTLB) sendDownstream(
 		WithDeviceID(tlb.DeviceID).
 		WithTaskID(req.TaskID).
 		WithOriginPort(req.OriginPort).
-		WithBitMap(bitmap)
+		WithBitMap(bitmap).
+		WithPrefetch(req.IsPrefetch)
 
 	if page.DeviceID != tlb.DeviceID {
 		if tlb.IOMMUPort == nil {

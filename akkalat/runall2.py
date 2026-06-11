@@ -124,6 +124,10 @@ COALESCING_FLAGS = [
     "-mmu-walk-coalescing",
 ]
 
+GMMU_PREFETCH_FLAGS = [
+    "-gmmu-prefetch",
+]
+
 VPN_MSHR_BASELINE_FLAGS = [
     "-gmmu-vpn-mshr-baseline",
     "-mmutlb-vpn-mshr-baseline",
@@ -148,7 +152,9 @@ CONFIGS = [
 
 PTCL_CONFIG_NAMES = [
     "baseline",
+    "gmmu_prefetch",
     "ptcl_mode",
+    "pasta",
     "coalescing",
     "camsat",
 ]
@@ -429,7 +435,9 @@ def build_ptcl_config_map(args):
 
     return {
         "baseline": VPN_MSHR_BASELINE_FLAGS,
+        "gmmu_prefetch": VPN_MSHR_BASELINE_FLAGS + GMMU_PREFETCH_FLAGS,
         "ptcl_mode": adaptive_flags(low, high),
+        "pasta": adaptive_flags(low, high) + GMMU_PREFETCH_FLAGS,
         "coalescing": VPN_MSHR_BASELINE_FLAGS + COALESCING_FLAGS,
         "camsat": adaptive_flags(low, high) + COALESCING_FLAGS,
     }
