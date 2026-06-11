@@ -280,13 +280,11 @@ func (b R9NanoGPUBuilder) Build(name string, id uint64) *GPU {
 	b.buildCP()
 	b.buildGMMU()
 	b.buildGMMUCache()
-	b.buildL2TLB()
 
 	b.connectCP()
 	b.connectL2AndDRAM()
 	b.connectL1ToL2()
-	b.connectL1TLBToL2TLB()
-	b.connectL2TLBToGMMUCache()
+	b.connectL1TLBToGMMUCache()
 	b.connectGMMUCachetoGMMU()
 
 	b.populateExternalPorts()
@@ -317,6 +315,7 @@ func (b *R9NanoGPUBuilder) createGPU(name string, id uint64) {
 	b.gpuName = name
 
 	b.gpu = &GPU{}
+	b.gpu.GPUID = id
 	b.gpu.Domain = sim.NewDomain(b.gpuName)
 	b.gpuID = id
 }
@@ -415,24 +414,24 @@ func (b *R9NanoGPUBuilder) connectL2AndDRAM() {
 		b.pageMigrationController.GetPortByName("LocalMem"), 16)
 }
 
-func (b *R9NanoGPUBuilder) connectL1TLBToL2TLB() {
+func (b *R9NanoGPUBuilder) connectL1TLBToGMMUCache() {
 	tlbConn := sim.NewDirectConnection(b.gpuName+".L1TLBtoL2TLB",
 		b.engine, b.freq)
 
-	tlbConn.PlugIn(b.l2TLBs[0].GetPortByName("Top"), 64)
+	tlbConn.PlugIn(b.gmmuCache.GetPortByName("Top"), 64)
 
 	for _, l1vTLB := range b.l1vTLBs {
-		l1vTLB.LowModule = b.l2TLBs[0].GetPortByName("Top")
+		l1vTLB.LowModule = b.gmmuCache.GetPortByName("Top")
 		tlbConn.PlugIn(l1vTLB.GetPortByName("Bottom"), 16)
 	}
 
 	for _, l1iTLB := range b.l1iTLBs {
-		l1iTLB.LowModule = b.l2TLBs[0].GetPortByName("Top")
+		l1iTLB.LowModule = b.gmmuCache.GetPortByName("Top")
 		tlbConn.PlugIn(l1iTLB.GetPortByName("Bottom"), 16)
 	}
 
 	for _, l1sTLB := range b.l1sTLBs {
-		l1sTLB.LowModule = b.l2TLBs[0].GetPortByName("Top")
+		l1sTLB.LowModule = b.gmmuCache.GetPortByName("Top")
 		tlbConn.PlugIn(l1sTLB.GetPortByName("Bottom"), 16)
 	}
 }
@@ -489,6 +488,12 @@ func (b *R9NanoGPUBuilder) connectCPWithAddressTranslators() {
 func (b *R9NanoGPUBuilder) connectCPWithTLBs() {
 	for _, tlb := range b.l2TLBs {
 		ctrlPort := tlb.GetPortByName("Control")
+		b.cp.TLBs = append(b.cp.TLBs, ctrlPort)
+		b.internalConn.PlugIn(ctrlPort, 1)
+	}
+
+	if b.gmmuCache != nil {
+		ctrlPort := b.gmmuCache.GetPortByName("Control")
 		b.cp.TLBs = append(b.cp.TLBs, ctrlPort)
 		b.internalConn.PlugIn(ctrlPort, 1)
 	}
@@ -619,20 +624,16 @@ func (b *R9NanoGPUBuilder) buildGMMUCache() {
 		WithDeviceID(b.gpuID).
 		WithIOMMUPort(b.IOMMUCache.GetPortByName("Top")).
 		WithPageTable(b.pageTable).
-		WithInnerLayer(b.InnerLayer).
-		WithMiddleLayer(b.MiddleLayer).
-		WithOuterLayer(b.OuterLayer).
 		WithLog2PageSize(b.log2PageSize).
 		WithPTCLModeThresholds(*gmmuPTCLThresholdLow, *gmmuPTCLThresholdHigh).
 		WithInitialPTCLMode(*gmmuInitialPTCLMode).
 		WithPerVPNMSHRBaseline(*gmmuVPNMSHRBaseline).
-		WithSetSize(0).
+		WithPTELookupLatencyCycles(*gmmuPTELookupLatency).
 		WithGMMUCacheTable(b.gmmuCacheTable)
 
-	gmmuCache := builder.Build(fmt.Sprintf("%s.GMMUCache", b.gpuName))
+	gmmuCache := builder.Build(fmt.Sprintf("%s.L2TLB", b.gpuName))
 	b.gmmuCache = gmmuCache
 	b.gpu.GMMUTLB = gmmuCache
-	// b.gpu.L2TLBs = append(b.gpu.L2TLBs, l2TLB)
 
 	if b.enableVisTracing {
 		tracing.CollectTrace(b.gmmuCache, b.visTracer)
@@ -983,6 +984,7 @@ func (b *R9NanoGPUBuilder) buildCP() {
 	builder := cp.MakeBuilder().
 		WithEngine(b.engine).
 		WithFreq(b.freq).
+		WithGPUID(b.gpuID).
 		WithMonitor(b.monitor).
 		WithPerfAnalyzer(b.perfAnalyzer)
 
@@ -1002,35 +1004,6 @@ func (b *R9NanoGPUBuilder) buildCP() {
 	b.buildPageMigrationController()
 }
 
-func (b *R9NanoGPUBuilder) buildL2TLB() {
-	builder := tlb.MakeBuilder().
-		WithEngine(b.engine).
-		WithFreq(b.freq).
-		WithNumWays(16).
-		WithNumSets(32).
-		WithNumMSHREntry(64).
-		WithNumReqPerCycle(32).
-		WithDeviceID(int(b.gpuID)).
-		WithPageSize(1 << b.log2PageSize).
-		WithLowModule(b.gmmuCache.GetPortByName("Top"))
-
-	l2TLB := builder.Build(fmt.Sprintf("%s.L2TLB", b.gpuName))
-	b.l2TLBs = append(b.l2TLBs, l2TLB)
-	b.gpu.L2TLBs = append(b.gpu.L2TLBs, l2TLB)
-
-	if b.enableVisTracing {
-		tracing.CollectTrace(l2TLB, b.visTracer)
-	}
-
-	if b.monitor != nil {
-		b.monitor.RegisterComponent(l2TLB)
-	}
-
-	if b.perfAnalyzer != nil {
-		b.perfAnalyzer.RegisterComponent(l2TLB)
-	}
-}
-
 func (b *R9NanoGPUBuilder) numCU() int {
 	return b.numCUPerShaderArray * b.numShaderArray
 }
@@ -1045,18 +1018,6 @@ func (b *R9NanoGPUBuilder) connectWithDirectConnection(
 	)
 	conn.PlugIn(port1, bufferSize)
 	conn.PlugIn(port2, bufferSize)
-}
-
-func (b *R9NanoGPUBuilder) connectL2TLBToGMMUCache() {
-	conn := sim.NewDirectConnection(
-		b.gpuName+".L2TLBtoGMMUCache",
-		b.engine, b.freq,
-	)
-	conn.PlugIn(b.gmmuCache.GetPortByName("Top"), 640)
-
-	for _, l2TLB := range b.l2TLBs {
-		conn.PlugIn(l2TLB.GetPortByName("Bottom"), 640)
-	}
 }
 
 func (b *R9NanoGPUBuilder) connectGMMUCachetoGMMU() {

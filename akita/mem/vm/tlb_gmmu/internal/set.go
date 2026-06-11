@@ -91,14 +91,33 @@ func (s *setImpl) Evict() (wayID int, ok bool, page vm.Page) {
 	return wayID, true, s.blocks[wayID].page
 }
 
+func (s *setImpl) EvictInvalid() (wayID int, ok bool, page vm.Page) {
+	for _, block := range s.blocks {
+		if block.page.Valid {
+			continue
+		}
+
+		s.removeFromVisitList(block.wayID)
+		return block.wayID, true, block.page
+	}
+
+	return 0, false, vm.Page{}
+}
+
+func (s *setImpl) InvalidWayCount() int {
+	count := 0
+	for _, block := range s.blocks {
+		if !block.page.Valid {
+			count++
+		}
+	}
+	return count
+}
+
 func (s *setImpl) Visit(wayID int) {
 	block := s.blocks[wayID]
 
-	for i, b := range s.visitList {
-		if b.wayID == wayID {
-			s.visitList = append(s.visitList[:i], s.visitList[i+1:]...)
-		}
-	}
+	s.removeFromVisitList(wayID)
 
 	s.visitCount++
 	block.lastVisit = s.visitCount
@@ -114,4 +133,13 @@ func (s *setImpl) Visit(wayID int) {
 
 func (s *setImpl) hasNothingToEvict() bool {
 	return len(s.visitList) == 0
+}
+
+func (s *setImpl) removeFromVisitList(wayID int) {
+	for i, b := range s.visitList {
+		if b.wayID == wayID {
+			s.visitList = append(s.visitList[:i], s.visitList[i+1:]...)
+			return
+		}
+	}
 }

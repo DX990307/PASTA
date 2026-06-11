@@ -90,7 +90,7 @@ type R9NanoGPUBuilder struct {
 	InnerLayer     map[uint64]uint64
 	MiddleLayer    map[uint64]uint64
 	OuterLayer     map[uint64]uint64
-	IOMMUCache     *mmuCache.TLB
+	IOMMUCache     *mmuCache.MMUCache
 }
 
 // MakeR9NanoGPUBuilder provides a GPU builder that can builds the R9Nano GPU.
@@ -109,7 +109,7 @@ func MakeR9NanoGPUBuilder() R9NanoGPUBuilder {
 	return b
 }
 
-func (b R9NanoGPUBuilder) WithIOMMUCache(iommuCache *mmuCache.TLB) R9NanoGPUBuilder {
+func (b R9NanoGPUBuilder) WithIOMMUCache(iommuCache *mmuCache.MMUCache) R9NanoGPUBuilder {
 	b.IOMMUCache = iommuCache
 	return b
 }
@@ -317,6 +317,7 @@ func (b *R9NanoGPUBuilder) createGPU(name string, id uint64) {
 	b.gpuName = name
 
 	b.gpu = &GPU{}
+	b.gpu.GPUID = id
 	b.gpu.Domain = sim.NewDomain(b.gpuName)
 	b.gpuID = id
 }
@@ -982,6 +983,7 @@ func (b *R9NanoGPUBuilder) buildCP() {
 	builder := cp.MakeBuilder().
 		WithEngine(b.engine).
 		WithFreq(b.freq).
+		WithGPUID(b.gpuID).
 		WithMonitor(b.monitor).
 		WithPerfAnalyzer(b.perfAnalyzer)
 

@@ -570,11 +570,16 @@ func (tlb *TLB) handlePrefetchRsp(
 		return false
 	}
 
+	respondTo := rsp.RespondTo
+	if state, found := tlb.prefetchReqStates[rsp.RespondTo]; found && state.req != nil {
+		respondTo = state.req.ID
+	}
+
 	forwardRsp := vm.TranslationRspBuilder{}.
 		WithSendTime(now).
 		WithSrc(tlb.topPort).
 		WithDst(rsp.OriginPort).
-		WithRspTo(rsp.RespondTo).
+		WithRspTo(respondTo).
 		WithPage(page).
 		WithTaskID(rsp.TaskID).
 		WithOriginPort(rsp.OriginPort).

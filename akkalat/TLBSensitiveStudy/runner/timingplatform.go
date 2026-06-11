@@ -18,6 +18,8 @@ import (
 	"github.com/sarchlab/akita/v3/sim"
 	"github.com/sarchlab/akita/v3/tracing"
 	"github.com/sarchlab/mgpusim/v3/driver"
+	"github.com/sarchlab/mgpusim/v3/emu"
+	"github.com/sarchlab/mgpusim/v3/insts"
 	"github.com/sarchlab/mgpusim/v3/timing/cp"
 )
 
@@ -233,6 +235,38 @@ func (b R9NanoPlatformBuilder) Build(numMemoryBank int) *Platform {
 
 	for _, gpu := range b.gpus {
 		gpu.MMUEngine = mmuComponent
+	}
+
+	disassembler := insts.NewDisassembler()
+	emu.CreateUniqSampledComputeUnit(
+		"cu", gpuBuilder.freq, disassembler,
+		pageTable, b.log2PageSize, b.globalStorage, nil)
+	emu.CreateUniqBBVComputeUnit(
+		"cu", gpuBuilder.freq, disassembler,
+		pageTable, b.log2PageSize, b.globalStorage, nil)
+	emu.CreateUniqStaticComputeUnit(
+		"cu", gpuBuilder.freq, disassembler,
+		pageTable, b.log2PageSize, b.globalStorage, nil)
+	for _, gpu := range b.gpus {
+		name := fmt.Sprintf("GPU%dCU", gpu.GPUID)
+		emu.CreateSampledComputeUnitForGPU(
+			gpu.GPUID,
+			name,
+			gpuBuilder.freq,
+			disassembler,
+			pageTable,
+			b.log2PageSize,
+			b.globalStorage,
+			nil)
+		emu.CreateStaticComputeUnitForGPU(
+			gpu.GPUID,
+			name,
+			gpuBuilder.freq,
+			disassembler,
+			pageTable,
+			b.log2PageSize,
+			b.globalStorage,
+			nil)
 	}
 
 	return &Platform{

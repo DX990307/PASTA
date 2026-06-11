@@ -120,6 +120,9 @@ def run_summary_row(metrics_path: Path):
     def summed_metric(what):
         return sum(metric(component, what, 0.0) for component in gmmu_components)
 
+    def prefetch_metric(what):
+        return metric("IOMMUTLB", what) + summed_metric(what)
+
     row = {
         "experiment": stem,
         "benchmark": benchmark,
@@ -127,19 +130,27 @@ def run_summary_row(metrics_path: Path):
         "total_time": metric("Driver", "total_time"),
         "incoming_req_count": metric("IOMMUTLB", "incoming_req_count"),
         "req_to_mmu_count": metric("IOMMUTLB", "req_to_mmu_count"),
-        "prefetch_generated_candidates": metric("IOMMUTLB", "prefetch_generated_candidates"),
-        "prefetch_enqueued_candidates": metric("IOMMUTLB", "prefetch_enqueued_candidates"),
-        "prefetch_completed_fills": metric("IOMMUTLB", "prefetch_completed_fills"),
+        "prefetch_generated_candidates": prefetch_metric("prefetch_generated_candidates"),
+        "prefetch_enqueued_candidates": prefetch_metric("prefetch_enqueued_candidates"),
+        "prefetch_completed_fills": prefetch_metric("prefetch_completed_fills"),
         "prefetch_useful_hits": metric("IOMMUTLB", "prefetch_useful_hits"),
         "prefetch_late_demands": metric("IOMMUTLB", "prefetch_late_demands"),
         "prefetch_lost_before_use": metric("IOMMUTLB", "prefetch_lost_before_use"),
         "prefetch_useful_rate_by_enqueued": metric("IOMMUTLB", "prefetch_useful_rate_by_enqueued"),
         "prefetch_useful_rate_by_completed": metric("IOMMUTLB", "prefetch_useful_rate_by_completed"),
-        "prefetch_rejected_by_prefix_filter": metric("IOMMUTLB", "prefetch_rejected_by_prefix_filter"),
-        "prefetch_rejected_by_duplicate_filter": metric("IOMMUTLB", "prefetch_rejected_by_duplicate_filter"),
-        "prefetch_rejected_by_invalid_target": metric("IOMMUTLB", "prefetch_rejected_by_invalid_target"),
-        "prefetch_no_clear_pattern_skips": metric("IOMMUTLB", "prefetch_no_clear_pattern_skips"),
+        "prefetch_rejected_by_prefix_filter": prefetch_metric("prefetch_rejected_by_prefix_filter"),
+        "prefetch_rejected_by_duplicate_filter": prefetch_metric("prefetch_rejected_by_duplicate_filter"),
+        "prefetch_rejected_by_invalid_target": prefetch_metric("prefetch_rejected_by_invalid_target"),
+        "prefetch_no_clear_pattern_skips": prefetch_metric("prefetch_no_clear_pattern_skips"),
         "mmu_req_average_latency": metric("MMU", "req_average_latency"),
+        "gmmucache_prefetch_generated_candidates": summed_metric("prefetch_generated_candidates"),
+        "gmmucache_prefetch_enqueued_candidates": summed_metric("prefetch_enqueued_candidates"),
+        "gmmucache_prefetch_completed_fills": summed_metric("prefetch_completed_fills"),
+        "gmmucache_prefetch_dropped_candidates": summed_metric("prefetch_dropped_candidates"),
+        "gmmucache_prefetch_rejected_by_prefix_filter": summed_metric("prefetch_rejected_by_prefix_filter"),
+        "gmmucache_prefetch_rejected_by_duplicate_filter": summed_metric("prefetch_rejected_by_duplicate_filter"),
+        "gmmucache_prefetch_rejected_by_invalid_target": summed_metric("prefetch_rejected_by_invalid_target"),
+        "gmmucache_prefetch_no_clear_pattern_skips": summed_metric("prefetch_no_clear_pattern_skips"),
         "gmmucache_prefetch_exact_inserted": summed_metric("prefetch_exact_inserted"),
         "gmmucache_prefetch_exact_useful": summed_metric("prefetch_exact_useful"),
         "gmmucache_prefetch_exact_useful_hit": summed_metric("prefetch_exact_useful_hit"),

@@ -36,60 +36,60 @@ type GMMUTLB struct {
 
 	Sets []internal.Set
 
-	mshr                mshr
-	respondingMSHREntry []*mshrEntry
-	log2Pagesize        uint64
-	vpnMSHRBaseline     bool
-	ptclMode            bool
-	coalescingCounter   int
-	ptclHighThreshold   int
-	ptclLowThreshold    int
-	switchToPTCLCount   int
-	switchToPTECount    int
-	downstreamReqCount  int
-	localReqCount       int
-	iommuReqCount       int
+	mshr                   mshr
+	respondingMSHREntry    []*mshrEntry
+	log2Pagesize           uint64
+	vpnMSHRBaseline        bool
+	ptclMode               bool
+	coalescingCounter      int
+	ptclHighThreshold      int
+	ptclLowThreshold       int
+	switchToPTCLCount      int
+	switchToPTECount       int
+	downstreamReqCount     int
+	localReqCount          int
+	iommuReqCount          int
+	pteLookupLatencyCycles int
+	pteLookupWaitingQueue  []pteLookupJob
+	pteLookupInflight      []pteLookupJob
+	pteLookupGroups        map[pteLookupGroupKey]*pteLookupGroup
+	pteLookupReadyToIssue  []pteLookupGroupKey
+	ptclRepresentativeMiss map[pteLookupGroupKey][8]bool
+	pteLookupDelayCount    int
+	pteLookupDelayCycles   int
+	pteLookupMaxInflight   int
+	pteLookupMaxWaiting    int
 
-	isPaused   bool
-	DeviceID   uint64
-	pageTable  vm.PageTable
-	PageFinder mem.PageFinder
+	isPaused       bool
+	DeviceID       uint64
+	pageTable      vm.PageTable
+	PageFinder     mem.PageFinder
+	gmmuCacheTable *mem.MultiPageFinder
 
-	TimeConsumption              map[uint64]TimeConsumption
-	prefetchedResidentEntries    map[prefetchResidentKey]*prefetchedResidentState
-	prefetchOutcomeByBlock       map[uint64]*prefetchOutcomeCounts
-	prefetchUnusedPTCLByBlock    map[uint64]map[uint64]int
-	prefetchExactInserted        int
-	prefetchExactUseful          int
-	prefetchExactUsefulHit       int
-	prefetchExactLateUseful      int
-	prefetchExactUnused          int
-	pendingPrefetchFeedback      []prefetchFeedbackEvent
-	prefetchFeedbackStateByBlock map[uint64]vm.PrefetchFeedbackState
+	TimeConsumption map[uint64]TimeConsumption
 }
 
-type prefetchResidentKey struct {
-	pid   vm.PID
-	vAddr uint64
+type pteLookupGroupKey struct {
+	pid       vm.PID
+	baseVAddr uint64
 }
 
-type prefetchedResidentState struct {
-	pageBlock uint64
+type pteLookupGroup struct {
+	key               pteLookupGroupKey
+	req               *vm.TranslationReq
+	ptclLookup        bool
+	lookupBitmap      [8]bool
+	missBitmap        [8]bool
+	representedBitmap [8]bool
+	remainingJobs     int
 }
 
-type prefetchOutcomeCounts struct {
-	Inserted        int
-	Useful          int
-	UsefulHit       int
-	LateUseful      int
-	Unused          int
-	ResidentPending int
-}
-
-type prefetchFeedbackEvent struct {
-	pageBlock uint64
-	targetGPM uint64
-	state     vm.PrefetchFeedbackState
+type pteLookupJob struct {
+	groupKey  pteLookupGroupKey
+	req       *vm.TranslationReq
+	vAddr     uint64
+	bit       int
+	readyTime sim.VTimeInSec
 }
 
 // Reset sets all the entries int he TLB to be invalid
@@ -100,16 +100,11 @@ func (tlb *GMMUTLB) reset() {
 		tlb.Sets[i] = set
 	}
 
-	clear(tlb.prefetchedResidentEntries)
-	clear(tlb.prefetchOutcomeByBlock)
-	clear(tlb.prefetchUnusedPTCLByBlock)
-	tlb.prefetchExactInserted = 0
-	tlb.prefetchExactUseful = 0
-	tlb.prefetchExactUsefulHit = 0
-	tlb.prefetchExactLateUseful = 0
-	tlb.prefetchExactUnused = 0
-	tlb.pendingPrefetchFeedback = nil
-	clear(tlb.prefetchFeedbackStateByBlock)
+	tlb.clearPTELookups()
+	tlb.pteLookupDelayCount = 0
+	tlb.pteLookupDelayCycles = 0
+	tlb.pteLookupMaxInflight = 0
+	tlb.pteLookupMaxWaiting = 0
 }
 
 // Tick defines how TLB update states at each cycle
@@ -119,6 +114,9 @@ func (tlb *GMMUTLB) Tick(now sim.VTimeInSec) bool {
 	madeProgress = tlb.performCtrlReq(now) || madeProgress
 
 	if !tlb.isPaused {
+		for i := 0; i < tlb.numReqPerCycle; i++ {
+			madeProgress = tlb.advancePTELookups(now) || madeProgress
+		}
 		for i := 0; i < tlb.numReqPerCycle; i++ {
 			madeProgress = tlb.parseBottom(now) || madeProgress
 		}
@@ -130,7 +128,7 @@ func (tlb *GMMUTLB) Tick(now sim.VTimeInSec) bool {
 			madeProgress = tlb.lookupFromOutsidePort(now) || madeProgress
 		}
 		for i := 0; i < tlb.numReqPerCycle; i++ {
-			madeProgress = tlb.sendPrefetchFeedback(now) || madeProgress
+			madeProgress = tlb.advancePTELookups(now) || madeProgress
 		}
 	}
 
@@ -147,6 +145,7 @@ func (tlb *GMMUTLB) respondMSHREntry(now sim.VTimeInSec) bool {
 
 	pages := mshrEntry.Pages
 
+	sentRsp := false
 	for i := 0; i < 8; i++ {
 		page := pages[i]
 		if page.Valid {
@@ -166,9 +165,14 @@ func (tlb *GMMUTLB) respondMSHREntry(now sim.VTimeInSec) bool {
 					return false
 				}
 
-				// break
+				sentRsp = true
+				break
 			}
 		}
+	}
+
+	if !sentRsp {
+		return false
 	}
 
 	mshrEntry.Requests = mshrEntry.Requests[1:]
@@ -192,17 +196,7 @@ func (tlb *GMMUTLB) lookupFromTopPort(now sim.VTimeInSec) bool {
 }
 
 func (tlb *GMMUTLB) lookupFromOutsidePort(now sim.VTimeInSec) bool {
-	msg := tlb.OutsidePort.Peek()
-	if msg == nil {
-		return false
-	}
-
-	switch msg := msg.(type) {
-	case *vm.TranslationRsp:
-		return tlb.processRsp(now, msg, false)
-	default:
-		panic("unexpected message type")
-	}
+	return tlb.processRspFromPort(now, tlb.OutsidePort, false)
 }
 
 func (tlb *GMMUTLB) handleTranslationHit(
@@ -216,10 +210,6 @@ func (tlb *GMMUTLB) handleTranslationHit(
 		return false
 	}
 	tlb.topPort.Retrieve(now)
-
-	if !req.IsPrefetch {
-		tlb.recordDemandUseful(page)
-	}
 
 	tlb.visit(setID, wayID)
 
@@ -241,17 +231,24 @@ func (tlb *GMMUTLB) handleTranslationMiss(
 		return false
 	}
 
-	fetched := tlb.fetchBottom(now, mshrReq)
-	if fetched {
-		tracing.TraceReqReceive(mshrReq, tlb)
-		tracing.AddTaskStep(tracing.MsgIDAtReceiver(mshrReq, tlb), tlb, "miss")
-		tracing.StartTask(mshrReq.TaskID,
-			tracing.MsgIDAtReceiver(mshrReq, tlb),
-			tlb, "EvictTest", "*vm.TranslationReq", mshrReq)
-		return true
+	lookupBitmap := tlb.lookupBitmapForReq(mshrReq)
+	if tlb.isBitmapZero(lookupBitmap) {
+		return false
 	}
 
-	return false
+	mshrEntry := tlb.mshr.Add(mshrReq.PID, mshrReq.VAddr, now, 0)
+	mshrEntry.Requests = append(mshrEntry.Requests, mshrReq)
+	tlb.enqueuePTELookupJobsWithBitmap(now, mshrReq, mshrEntry, lookupBitmap)
+
+	tlb.topPort.Retrieve(now)
+
+	tracing.TraceReqReceive(mshrReq, tlb)
+	tracing.AddTaskStep(tracing.MsgIDAtReceiver(mshrReq, tlb), tlb, "miss")
+	tracing.StartTask(mshrReq.TaskID,
+		tracing.MsgIDAtReceiver(mshrReq, tlb),
+		tlb, "EvictTest", "*vm.TranslationReq", mshrReq)
+
+	return true
 }
 
 func (tlb *GMMUTLB) vAddrToSetID(vAddr uint64) (setID int) {
@@ -286,24 +283,9 @@ func (tlb *GMMUTLB) processTLBMSHRHit(
 		return false
 	}
 
-	requestedBitmap := tlb.normalizeBitmap(mshrReq)
-	toIssue := [8]bool{}
-	if tlb.vpnMSHRBaseline || !tlb.ptclMode {
-		toIssue = tlb.subtractBitmaps(requestedBitmap, mshrEntry.IssuedBitMap)
-		toIssue = tlb.filterMappedBitmap(mshrReq.PID, mshrReq.VAddr, toIssue)
-	}
-
-	if !tlb.isBitmapZero(toIssue) {
-		reqToBottom, ok := tlb.sendDownstream(now, mshrReq, toIssue)
-		if !ok {
-			return false
-		}
-		mshrEntry.reqToBottom = reqToBottom
-		mshrEntry.IssuedBitMap = tlb.mergeBitmaps(mshrEntry.IssuedBitMap, toIssue)
-	}
-
 	tlb.mshr.UpdateUpLevelBitMap(mshrReq.PID, mshrReq.VAddr, now, 0)
 	mshrEntry.Requests = append(mshrEntry.Requests, mshrReq)
+	tlb.enqueuePTELookupJobs(now, mshrReq, mshrEntry)
 
 	tlb.topPort.Retrieve(now)
 
@@ -313,6 +295,7 @@ func (tlb *GMMUTLB) processTLBMSHRHit(
 		tracing.MsgIDAtReceiver(mshrReq, tlb),
 		tlb, "EvictTest", "*vm.TranslationReq", mshrReq)
 
+	tlb.scheduleReadyMSHREntry(now, mshrEntry, false)
 	return true
 }
 
@@ -323,9 +306,15 @@ func (tlb *GMMUTLB) fetchBottom(now sim.VTimeInSec, mshrReq *vm.TranslationReq) 
 		issuedBitmap = tlb.fullBitmap()
 	}
 	issuedBitmap = tlb.filterMappedBitmap(mshrReq.PID, mshrReq.VAddr, issuedBitmap)
+	if tlb.isBitmapZero(issuedBitmap) {
+		return false
+	}
 
 	reqToBottom, ok := tlb.sendDownstream(now, mshrReq, issuedBitmap)
 	if !ok {
+		return false
+	}
+	if reqToBottom == nil {
 		return false
 	}
 
@@ -342,19 +331,327 @@ func (tlb *GMMUTLB) fetchBottom(now sim.VTimeInSec, mshrReq *vm.TranslationReq) 
 	return true
 }
 
+func (tlb *GMMUTLB) clearPTELookups() {
+	tlb.pteLookupWaitingQueue = nil
+	tlb.pteLookupInflight = nil
+	tlb.pteLookupReadyToIssue = nil
+	if tlb.pteLookupGroups == nil {
+		tlb.pteLookupGroups = make(map[pteLookupGroupKey]*pteLookupGroup)
+	} else {
+		clear(tlb.pteLookupGroups)
+	}
+	if tlb.ptclRepresentativeMiss == nil {
+		tlb.ptclRepresentativeMiss = make(map[pteLookupGroupKey][8]bool)
+	} else {
+		clear(tlb.ptclRepresentativeMiss)
+	}
+}
+
+func (tlb *GMMUTLB) lookupBitmapForReq(req *vm.TranslationReq) [8]bool {
+	requestedBitmap := tlb.normalizeBitmap(req)
+	lookupBitmap := requestedBitmap
+	if tlb.ptclMode && !tlb.vpnMSHRBaseline {
+		lookupBitmap = tlb.fullBitmap()
+	}
+
+	return tlb.filterMappedBitmap(req.PID, req.VAddr, lookupBitmap)
+}
+
+func (tlb *GMMUTLB) enqueuePTELookupJobs(
+	now sim.VTimeInSec,
+	req *vm.TranslationReq,
+	entry *mshrEntry,
+) {
+	tlb.enqueuePTELookupJobsWithBitmap(now, req, entry, tlb.lookupBitmapForReq(req))
+}
+
+func (tlb *GMMUTLB) enqueuePTELookupJobsWithBitmap(
+	now sim.VTimeInSec,
+	req *vm.TranslationReq,
+	entry *mshrEntry,
+	lookupBitmap [8]bool,
+) {
+	toLookup := tlb.subtractBitmaps(lookupBitmap, entry.IssuedBitMap)
+	if tlb.isBitmapZero(toLookup) {
+		return
+	}
+
+	ptclLookup := tlb.ptclMode && !tlb.vpnMSHRBaseline
+	key := tlb.pteLookupGroupKey(req.PID, req.VAddr)
+	group := tlb.pteLookupGroups[key]
+	if group != nil {
+		group.ptclLookup = group.ptclLookup || ptclLookup
+	} else {
+		group = &pteLookupGroup{
+			key:        key,
+			req:        req,
+			ptclLookup: ptclLookup,
+		}
+		tlb.pteLookupGroups[key] = group
+	}
+
+	baseVAddr := tlb.getBaseVaddr(req.VAddr)
+	for i := 0; i < 8; i++ {
+		if !toLookup[i] {
+			continue
+		}
+
+		tlb.pteLookupWaitingQueue = append(tlb.pteLookupWaitingQueue, pteLookupJob{
+			groupKey: key,
+			req:      req,
+			vAddr:    baseVAddr + (uint64(i) << tlb.log2Pagesize),
+			bit:      i,
+		})
+		group.remainingJobs++
+	}
+
+	entry.IssuedBitMap = tlb.mergeBitmaps(entry.IssuedBitMap, toLookup)
+	group.lookupBitmap = tlb.mergeBitmaps(group.lookupBitmap, toLookup)
+
+	lookupBits := tlb.bitmapCount(toLookup)
+	tlb.pteLookupDelayCount += lookupBits
+	tlb.pteLookupDelayCycles += lookupBits * tlb.pteLookupLatencyCycles
+	if len(tlb.pteLookupWaitingQueue) > tlb.pteLookupMaxWaiting {
+		tlb.pteLookupMaxWaiting = len(tlb.pteLookupWaitingQueue)
+	}
+}
+
+func (tlb *GMMUTLB) pteLookupGroupKey(pid vm.PID, vAddr uint64) pteLookupGroupKey {
+	baseVAddr := tlb.getBaseVaddr(vAddr)
+	if tlb.vpnMSHRBaseline {
+		baseVAddr = (vAddr >> tlb.log2Pagesize) << tlb.log2Pagesize
+	}
+
+	return pteLookupGroupKey{
+		pid:       pid,
+		baseVAddr: baseVAddr,
+	}
+}
+
+func (tlb *GMMUTLB) advancePTELookups(now sim.VTimeInSec) bool {
+	if tlb.issueReadyPTELookupGroup(now) {
+		return true
+	}
+
+	for i, job := range tlb.pteLookupInflight {
+		if job.readyTime > now {
+			continue
+		}
+
+		tlb.pteLookupInflight = append(
+			tlb.pteLookupInflight[:i],
+			tlb.pteLookupInflight[i+1:]...,
+		)
+		return tlb.processReadyPTELookupJob(now, job)
+	}
+
+	if len(tlb.pteLookupWaitingQueue) > 0 &&
+		len(tlb.pteLookupInflight) < tlb.numReqPerCycle {
+		job := tlb.pteLookupWaitingQueue[0]
+		tlb.pteLookupWaitingQueue = tlb.pteLookupWaitingQueue[1:]
+		if tlb.pteLookupLatencyCycles > 0 {
+			job.readyTime = tlb.Freq.NCyclesLater(tlb.pteLookupLatencyCycles, now)
+		} else {
+			job.readyTime = now
+		}
+		tlb.pteLookupInflight = append(tlb.pteLookupInflight, job)
+		if len(tlb.pteLookupInflight) > tlb.pteLookupMaxInflight {
+			tlb.pteLookupMaxInflight = len(tlb.pteLookupInflight)
+		}
+		return true
+	}
+
+	tlb.tickAtNextPTELookupReadyTime(now)
+	return false
+}
+
+func (tlb *GMMUTLB) processReadyPTELookupJob(
+	now sim.VTimeInSec,
+	job pteLookupJob,
+) bool {
+	group := tlb.pteLookupGroups[job.groupKey]
+
+	setID := tlb.vAddrToSetID(job.vAddr)
+	set := tlb.Sets[setID]
+	wayID, page, found := set.Lookup(job.req.PID, job.vAddr)
+	if found && page.Valid {
+		tlb.visit(setID, wayID)
+		if mshrEntry := tlb.mshr.GetEntry(job.req.PID, job.vAddr); mshrEntry != nil {
+			tlb.mshr.UpdatePage(page.PID, page.VAddr, page)
+			tlb.mshr.UpdateResponseBitMap(page.PID, page.VAddr)
+			tlb.scheduleReadyMSHREntry(now, mshrEntry, false)
+		}
+	} else if group != nil {
+		group.missBitmap[job.bit] = true
+	}
+
+	if group != nil {
+		group.remainingJobs--
+		if group.remainingJobs == 0 {
+			tlb.finishPTELookupGroup(group)
+		}
+	}
+
+	return true
+}
+
+func (tlb *GMMUTLB) finishPTELookupGroup(group *pteLookupGroup) {
+	if tlb.isBitmapZero(group.missBitmap) {
+		delete(tlb.pteLookupGroups, group.key)
+		return
+	}
+
+	tlb.pteLookupReadyToIssue = append(tlb.pteLookupReadyToIssue, group.key)
+}
+
+func (tlb *GMMUTLB) issueReadyPTELookupGroup(now sim.VTimeInSec) bool {
+	if len(tlb.pteLookupReadyToIssue) == 0 {
+		return false
+	}
+
+	key := tlb.pteLookupReadyToIssue[0]
+	group := tlb.pteLookupGroups[key]
+	if group == nil {
+		tlb.pteLookupReadyToIssue = tlb.pteLookupReadyToIssue[1:]
+		return true
+	}
+
+	downstreamBitmap := tlb.downstreamBitmapForLookupGroup(group)
+	if tlb.isBitmapZero(downstreamBitmap) {
+		tlb.updateIssuedBitmapAfterLookupGroup(group, group.representedBitmap)
+		tlb.pteLookupReadyToIssue = tlb.pteLookupReadyToIssue[1:]
+		delete(tlb.pteLookupGroups, key)
+		return true
+	}
+
+	reqToBottom, ok := tlb.sendDownstream(now, group.req, downstreamBitmap)
+	if !ok {
+		return false
+	}
+
+	if mshrEntry := tlb.mshr.GetEntry(group.req.PID, group.req.VAddr); mshrEntry != nil {
+		mshrEntry.reqToBottom = reqToBottom
+	}
+	representedBitmap := downstreamBitmap
+	if group.ptclLookup {
+		representedBitmap = tlb.mergeBitmaps(group.missBitmap, downstreamBitmap)
+		tlb.registerPTCLRepresentativeMiss(group, representedBitmap)
+	}
+	group.representedBitmap = tlb.mergeBitmaps(group.representedBitmap, representedBitmap)
+	if reqToBottom != nil {
+		tracing.TraceReqInitiate(reqToBottom, tlb,
+			tracing.MsgIDAtReceiver(group.req, tlb))
+	}
+
+	tlb.updateIssuedBitmapAfterLookupGroup(group, group.representedBitmap)
+	tlb.pteLookupReadyToIssue = tlb.pteLookupReadyToIssue[1:]
+	delete(tlb.pteLookupGroups, key)
+	return true
+}
+
+func (tlb *GMMUTLB) downstreamBitmapForLookupGroup(
+	group *pteLookupGroup,
+) [8]bool {
+	if group == nil {
+		return [8]bool{}
+	}
+
+	if !group.ptclLookup {
+		return group.missBitmap
+	}
+
+	return tlb.ptclRepresentativeBitmap(group)
+}
+
+func (tlb *GMMUTLB) ptclRepresentativeBitmap(
+	group *pteLookupGroup,
+) [8]bool {
+	if group == nil || tlb.isBitmapZero(group.missBitmap) {
+		return [8]bool{}
+	}
+
+	bitmap := [8]bool{}
+	bitmap[0] = true
+	bitmap = tlb.filterMappedBitmap(group.req.PID, group.key.baseVAddr, bitmap)
+	if !tlb.isBitmapZero(bitmap) {
+		return bitmap
+	}
+
+	return tlb.firstBitBitmap(group.missBitmap)
+}
+
+func (tlb *GMMUTLB) registerPTCLRepresentativeMiss(
+	group *pteLookupGroup,
+	representedBitmap [8]bool,
+) {
+	if group == nil || tlb.isBitmapZero(representedBitmap) {
+		return
+	}
+
+	if tlb.ptclRepresentativeMiss == nil {
+		tlb.ptclRepresentativeMiss = make(map[pteLookupGroupKey][8]bool)
+	}
+
+	existing := tlb.ptclRepresentativeMiss[group.key]
+	tlb.ptclRepresentativeMiss[group.key] =
+		tlb.mergeBitmaps(existing, representedBitmap)
+}
+
+func (tlb *GMMUTLB) updateIssuedBitmapAfterLookupGroup(
+	group *pteLookupGroup,
+	downstreamBitmap [8]bool,
+) {
+	if group == nil || !group.ptclLookup {
+		return
+	}
+
+	entry := tlb.mshr.GetEntry(group.req.PID, group.req.VAddr)
+	if entry == nil {
+		return
+	}
+
+	outsideGroup := tlb.subtractBitmaps(entry.IssuedBitMap, group.lookupBitmap)
+	servedBitmap := tlb.mergeBitmaps(entry.ResponseBitMap, downstreamBitmap)
+	entry.IssuedBitMap = tlb.mergeBitmaps(outsideGroup, servedBitmap)
+}
+
+func (tlb *GMMUTLB) tickAtNextPTELookupReadyTime(now sim.VTimeInSec) {
+	if len(tlb.pteLookupInflight) == 0 {
+		return
+	}
+
+	next := tlb.pteLookupInflight[0].readyTime
+	for _, job := range tlb.pteLookupInflight[1:] {
+		if job.readyTime < next {
+			next = job.readyTime
+		}
+	}
+	if next > now {
+		tlb.TickNow(next)
+	}
+}
+
 func (tlb *GMMUTLB) parseBottom(now sim.VTimeInSec) bool {
 	if len(tlb.respondingMSHREntry) != 0 {
 		return false
 	}
 
-	item := tlb.bottomPort.Peek()
-	if item == nil {
+	return tlb.processRspFromPort(now, tlb.bottomPort, true)
+}
+
+func (tlb *GMMUTLB) processRspFromPort(
+	now sim.VTimeInSec,
+	port sim.Port,
+	bottom bool,
+) bool {
+	msg := port.Peek()
+	if msg == nil {
 		return false
 	}
 
-	switch item := item.(type) {
+	switch msg := msg.(type) {
 	case *vm.TranslationRsp:
-		return tlb.processRsp(now, item, true)
+		return tlb.processRsp(now, msg, bottom)
 	default:
 		panic("unexpected message type")
 	}
@@ -410,6 +707,7 @@ func (tlb *GMMUTLB) handleTLBFlush(now sim.VTimeInSec, req *FlushReq) bool {
 	}
 
 	tlb.mshr.Reset()
+	tlb.clearPTELookups()
 	tlb.isPaused = true
 	return true
 }
@@ -440,12 +738,7 @@ func (tlb *GMMUTLB) handleTLBRestart(now sim.VTimeInSec, req *RestartReq) bool {
 }
 
 func (tlb *GMMUTLB) processTranslation(now sim.VTimeInSec, req *vm.TranslationReq) bool {
-	setID := tlb.vAddrToSetID(req.VAddr)
-	set := tlb.Sets[setID]
-	wayID, page, found := set.Lookup(req.PID, req.VAddr)
-	if found && page.Valid {
-		return tlb.handleTranslationHit(now, req, setID, wayID, page)
-	}
+	req.BitMap = tlb.normalizeBitmap(req)
 
 	mshrEntry := tlb.mshr.GetEntry(req.PID, req.VAddr)
 
@@ -456,282 +749,134 @@ func (tlb *GMMUTLB) processTranslation(now sim.VTimeInSec, req *vm.TranslationRe
 	return tlb.handleTranslationMiss(now, req)
 }
 
-func (tlb *GMMUTLB) processRsp(now sim.VTimeInSec, rsp *vm.TranslationRsp, bottom bool) bool {
+func (tlb *GMMUTLB) processRsp(
+	now sim.VTimeInSec,
+	rsp *vm.TranslationRsp,
+	bottom bool,
+) bool {
 	page := rsp.Page
 
-	// fmt.Printf("Received from %s VAddr %d\n", rsp.Src.Name(), page.VAddr)
-
-	mshrEntryPresent := tlb.mshr.IsEntryPresent(rsp.Page.PID, rsp.Page.VAddr)
-
-	if !mshrEntryPresent {
-		setID := tlb.vAddrToSetID(page.VAddr)
-		set := tlb.Sets[setID]
-		wayID, ok, evictedPage := tlb.Sets[setID].Evict()
-
-		if !ok {
-			panic("failed to evict")
-		}
-
-		tlb.recordPrefetchEviction(evictedPage)
-		set.Update(wayID, page)
-		set.Visit(wayID)
-		if rsp.IsPrefetch {
-			tlb.recordPrefetchInsert(page)
-		}
-
-		if bottom {
-			tlb.bottomPort.Retrieve(now)
-			// fmt.Printf("Bottom\n")
-		} else {
-			tlb.OutsidePort.Retrieve(now)
-			// fmt.Printf("OutsidePort\n")
-		}
-
+	if tlb.completePTCLRepresentativeRsp(now, page) {
+		tlb.retrieveRsp(now, bottom)
 		return true
 	}
 
-	setID := tlb.vAddrToSetID(page.VAddr)
-	set := tlb.Sets[setID]
-	wayID, ok, evictedPage := tlb.Sets[setID].Evict()
+	// fmt.Printf("Received from %s VAddr %d\n", rsp.Src.Name(), page.VAddr)
 
-	if !ok {
-		panic("failed to evict")
+	mshrEntryPresent := tlb.mshr.IsEntryPresent(page.PID, page.VAddr)
+	tlb.installPage(page)
+
+	if !mshrEntryPresent {
+		tlb.retrieveRsp(now, bottom)
+		return true
 	}
 
-	tlb.recordPrefetchEviction(evictedPage)
-	set.Update(wayID, page)
-	set.Visit(wayID)
-	if rsp.IsPrefetch {
-		tlb.recordLatePrefetchUse(page)
-	}
-
-	tlb.mshr.UpdatePage(rsp.Page.PID, rsp.Page.VAddr, page)
+	tlb.mshr.UpdatePage(page.PID, page.VAddr, page)
 
 	mshrEntry := tlb.mshr.GetEntry(page.PID, page.VAddr)
 	if mshrEntry == nil {
-		if bottom {
-			tlb.bottomPort.Retrieve(now)
-		} else {
-			tlb.OutsidePort.Retrieve(now)
-		}
+		tlb.retrieveRsp(now, bottom)
 		return true
 	}
 
 	tlb.mshr.UpdateResponseBitMap(page.PID, page.VAddr)
 
-	if mshrEntry.IsReady() {
-		tlb.respondingMSHREntry = append(tlb.respondingMSHREntry, mshrEntry)
-		tlb.updateModeByMSHREntry(mshrEntry)
-		tlb.mshr.Remove(page.PID, page.VAddr)
+	tlb.scheduleReadyMSHREntry(now, mshrEntry, true)
+
+	tlb.retrieveRsp(now, bottom)
+	return true
+}
+
+func (tlb *GMMUTLB) completePTCLRepresentativeRsp(
+	now sim.VTimeInSec,
+	representativePage vm.Page,
+) bool {
+	if tlb.ptclRepresentativeMiss == nil {
+		return false
 	}
+
+	key := tlb.pteLookupGroupKey(representativePage.PID, representativePage.VAddr)
+	representedBitmap, found := tlb.ptclRepresentativeMiss[key]
+	if !found {
+		return false
+	}
+
+	delete(tlb.ptclRepresentativeMiss, key)
+	representedBitmap = tlb.mergeBitmaps(
+		representedBitmap,
+		tlb.singlePageBitmap(representativePage.VAddr),
+	)
+
+	var mshrEntry *mshrEntry
+	for i := 0; i < 8; i++ {
+		if !representedBitmap[i] {
+			continue
+		}
+
+		pageVAddr := key.baseVAddr + (uint64(i) << tlb.log2Pagesize)
+		page := representativePage
+		if representativePage.VAddr != pageVAddr {
+			var pageFound bool
+			page, pageFound = tlb.pageTable.Find(representativePage.PID, pageVAddr)
+			if !pageFound {
+				continue
+			}
+		}
+
+		tlb.installPage(page)
+
+		if entry := tlb.mshr.GetEntry(page.PID, page.VAddr); entry != nil {
+			mshrEntry = entry
+			tlb.mshr.UpdatePage(page.PID, page.VAddr, page)
+			tlb.mshr.UpdateResponseBitMap(page.PID, page.VAddr)
+		}
+	}
+
+	tlb.scheduleReadyMSHREntry(now, mshrEntry, true)
+	return true
+}
+
+func (tlb *GMMUTLB) scheduleReadyMSHREntry(
+	now sim.VTimeInSec,
+	entry *mshrEntry,
+	updateMode bool,
+) bool {
+	if entry == nil || !entry.IsReady() {
+		return false
+	}
+
+	if tlb.mshr.GetEntry(entry.pid, entry.baseVAddr) == nil {
+		return false
+	}
+
+	tlb.respondingMSHREntry = append(tlb.respondingMSHREntry, entry)
+	if updateMode {
+		tlb.updateModeByMSHREntry(entry)
+	}
+	tlb.mshr.Remove(entry.pid, entry.baseVAddr)
+	return true
+}
+
+func (tlb *GMMUTLB) installPage(page vm.Page) bool {
+	setID := tlb.vAddrToSetID(page.VAddr)
+	set := tlb.Sets[setID]
+	wayID, ok, _ := tlb.Sets[setID].Evict()
+
+	if !ok {
+		return false
+	}
+
+	set.Update(wayID, page)
+	set.Visit(wayID)
+	return true
+}
+
+func (tlb *GMMUTLB) retrieveRsp(now sim.VTimeInSec, bottom bool) {
 	if bottom {
 		tlb.bottomPort.Retrieve(now)
-
 	} else {
 		tlb.OutsidePort.Retrieve(now)
 	}
-	return true
-}
-
-func (tlb *GMMUTLB) prefetchOutcomeState(pageBlock uint64) *prefetchOutcomeCounts {
-	state, found := tlb.prefetchOutcomeByBlock[pageBlock]
-	if !found {
-		state = &prefetchOutcomeCounts{}
-		tlb.prefetchOutcomeByBlock[pageBlock] = state
-	}
-
-	return state
-}
-
-func (tlb *GMMUTLB) prefetchedEntryKey(page vm.Page) prefetchResidentKey {
-	return prefetchResidentKey{pid: page.PID, vAddr: page.VAddr}
-}
-
-func (tlb *GMMUTLB) recordPrefetchInsert(page vm.Page) {
-	if !page.Valid {
-		return
-	}
-
-	key := tlb.prefetchedEntryKey(page)
-	if _, found := tlb.prefetchedResidentEntries[key]; found {
-		return
-	}
-
-	tlb.prefetchedResidentEntries[key] = &prefetchedResidentState{pageBlock: page.PageBlock}
-	tlb.prefetchExactInserted++
-	state := tlb.prefetchOutcomeState(page.PageBlock)
-	state.Inserted++
-	state.ResidentPending++
-}
-
-func (tlb *GMMUTLB) recordLatePrefetchUse(page vm.Page) {
-	if !page.Valid {
-		return
-	}
-
-	key := tlb.prefetchedEntryKey(page)
-	if state, found := tlb.prefetchedResidentEntries[key]; found {
-		counts := tlb.prefetchOutcomeState(state.pageBlock)
-		if counts.ResidentPending > 0 {
-			counts.ResidentPending--
-		}
-		delete(tlb.prefetchedResidentEntries, key)
-	}
-
-	tlb.prefetchExactInserted++
-	tlb.prefetchExactUseful++
-	tlb.prefetchExactLateUseful++
-	counts := tlb.prefetchOutcomeState(page.PageBlock)
-	counts.Inserted++
-	counts.Useful++
-	counts.LateUseful++
-	// tlb.enqueuePrefetchFeedback(page.PageBlock, tlb.DeviceID, vm.PrefetchFeedbackOutcomeLateUseful)
-	tlb.maybeNotifyPrefetchFeedbackState(page.PageBlock)
-}
-
-func (tlb *GMMUTLB) recordDemandUseful(page vm.Page) {
-	if !page.Valid {
-		return
-	}
-
-	key := tlb.prefetchedEntryKey(page)
-	state, found := tlb.prefetchedResidentEntries[key]
-	if !found {
-		return
-	}
-
-	tlb.prefetchExactUseful++
-	tlb.prefetchExactUsefulHit++
-	counts := tlb.prefetchOutcomeState(state.pageBlock)
-	counts.Useful++
-	counts.UsefulHit++
-	// tlb.enqueuePrefetchFeedback(state.pageBlock, tlb.DeviceID, vm.PrefetchFeedbackOutcomeUsefulHit)
-	tlb.maybeNotifyPrefetchFeedbackState(state.pageBlock)
-	if counts.ResidentPending > 0 {
-		counts.ResidentPending--
-	}
-	delete(tlb.prefetchedResidentEntries, key)
-}
-
-func (tlb *GMMUTLB) recordPrefetchEviction(page vm.Page) {
-	if !page.Valid {
-		return
-	}
-
-	key := tlb.prefetchedEntryKey(page)
-	state, found := tlb.prefetchedResidentEntries[key]
-	if !found {
-		return
-	}
-
-	tlb.prefetchExactUnused++
-	counts := tlb.prefetchOutcomeState(state.pageBlock)
-	counts.Unused++
-	// tlb.enqueuePrefetchFeedback(state.pageBlock, tlb.DeviceID, vm.PrefetchFeedbackOutcomeUnused)
-	tlb.maybeNotifyPrefetchFeedbackState(state.pageBlock)
-	blockPTCLs, found := tlb.prefetchUnusedPTCLByBlock[state.pageBlock]
-	if !found {
-		blockPTCLs = make(map[uint64]int)
-		tlb.prefetchUnusedPTCLByBlock[state.pageBlock] = blockPTCLs
-	}
-	blockPTCLs[tlb.ptclID(page.VAddr)]++
-	if counts.ResidentPending > 0 {
-		counts.ResidentPending--
-	}
-	delete(tlb.prefetchedResidentEntries, key)
-}
-
-func (tlb *GMMUTLB) currentPrefetchFeedbackState(pageBlock uint64) vm.PrefetchFeedbackState {
-	counts := tlb.prefetchOutcomeState(pageBlock)
-	resolved := counts.UsefulHit + counts.Unused
-	if resolved >= 8 && counts.Unused > counts.UsefulHit {
-		return vm.PrefetchFeedbackStateDisabled
-	}
-
-	return vm.PrefetchFeedbackStateEnabled
-}
-
-func (tlb *GMMUTLB) maybeNotifyPrefetchFeedbackState(pageBlock uint64) {
-	state := tlb.currentPrefetchFeedbackState(pageBlock)
-	previous, found := tlb.prefetchFeedbackStateByBlock[pageBlock]
-	if found && previous == state {
-		return
-	}
-
-	tlb.prefetchFeedbackStateByBlock[pageBlock] = state
-	if !found && state == vm.PrefetchFeedbackStateEnabled {
-		return
-	}
-
-	tlb.enqueuePrefetchFeedback(pageBlock, tlb.DeviceID, state)
-}
-
-func (tlb *GMMUTLB) enqueuePrefetchFeedback(
-	pageBlock uint64,
-	targetGPM uint64,
-	state vm.PrefetchFeedbackState,
-) {
-	tlb.pendingPrefetchFeedback = append(tlb.pendingPrefetchFeedback, prefetchFeedbackEvent{
-		pageBlock: pageBlock,
-		targetGPM: targetGPM,
-		state:     state,
-	})
-}
-
-func (tlb *GMMUTLB) sendPrefetchFeedback(now sim.VTimeInSec) bool {
-	if len(tlb.pendingPrefetchFeedback) == 0 {
-		return false
-	}
-
-	if tlb.IOMMUPort == nil {
-		log.Panicf("GMMUTLB %s does not have an IOMMU port", tlb.Name())
-	}
-
-	event := tlb.pendingPrefetchFeedback[0]
-	msg := vm.PrefetchFeedbackMsgBuilder{}.
-		WithSendTime(now).
-		WithSrc(tlb.OutsidePort).
-		WithDst(tlb.IOMMUPort).
-		WithPageBlock(event.pageBlock).
-		WithTargetGPM(event.targetGPM).
-		WithState(event.state).
-		Build()
-
-	if err := tlb.IOMMUPort.Send(msg); err != nil {
-		return false
-	}
-
-	tlb.pendingPrefetchFeedback = tlb.pendingPrefetchFeedback[1:]
-	return true
-}
-
-func (tlb *GMMUTLB) sendToIOMMU(
-	req *vm.TranslationReq,
-	now sim.VTimeInSec,
-	Bitmap [8]bool,
-) (*vm.TranslationReq, bool) {
-	if tlb.IOMMUPort == nil {
-		log.Panicf("GMMUTLB %s does not have an IOMMU port", tlb.Name())
-	}
-
-	newReq := vm.TranslationReqBuilder{}.
-		WithSendTime(now).
-		WithSrc(tlb.OutsidePort).
-		WithDst(tlb.IOMMUPort).
-		WithPID(req.PID).
-		WithVAddr(req.VAddr).
-		WithDeviceID(tlb.DeviceID).
-		WithTaskID(req.TaskID).
-		WithOriginPort(req.OriginPort).
-		WithBitMap(Bitmap).
-		Build()
-
-	err := tlb.IOMMUPort.Send(newReq)
-	if err != nil {
-		return nil, false
-	}
-
-	return newReq, true
 }
 
 func (tlb *GMMUTLB) sendDownstream(
@@ -740,15 +885,15 @@ func (tlb *GMMUTLB) sendDownstream(
 	bitmap [8]bool,
 ) (*vm.TranslationReq, bool) {
 	if tlb.isBitmapZero(bitmap) {
-		return nil, true
+		return nil, false
 	}
 
-	page, found := tlb.pageTable.Find(req.PID, req.VAddr)
+	targetVAddr := tlb.bitmapVAddr(req.VAddr, bitmap)
+	page, found := tlb.findFirstMappedPageInBitmap(req.PID, req.VAddr, bitmap)
 	if !found {
 		panic("page not found")
 	}
 
-	targetVAddr := tlb.bitmapVAddr(req.VAddr, bitmap)
 	newReq := vm.TranslationReqBuilder{}.
 		WithSendTime(now).
 		WithPID(req.PID).
@@ -767,6 +912,7 @@ func (tlb *GMMUTLB) sendDownstream(
 			WithSrc(tlb.OutsidePort).
 			WithDst(tlb.IOMMUPort).
 			Build()
+		translatedReq.StartGPUID = req.StartGPUID
 
 		err := tlb.IOMMUPort.Send(translatedReq)
 		if err != nil {
@@ -783,6 +929,7 @@ func (tlb *GMMUTLB) sendDownstream(
 		WithSrc(tlb.bottomPort).
 		WithDst(tlb.LowModule).
 		Build()
+	translatedReq.StartGPUID = req.StartGPUID
 
 	err := tlb.bottomPort.Send(translatedReq)
 	if err != nil {
@@ -793,6 +940,27 @@ func (tlb *GMMUTLB) sendDownstream(
 	tlb.localReqCount++
 
 	return translatedReq, true
+}
+
+func (tlb *GMMUTLB) findFirstMappedPageInBitmap(
+	pid vm.PID,
+	vAddr uint64,
+	bitmap [8]bool,
+) (vm.Page, bool) {
+	baseVAddr := tlb.getBaseVaddr(vAddr)
+	for i := 0; i < 8; i++ {
+		if !bitmap[i] {
+			continue
+		}
+
+		pageVAddr := baseVAddr + (uint64(i) << tlb.log2Pagesize)
+		page, found := tlb.pageTable.Find(pid, pageVAddr)
+		if found {
+			return page, true
+		}
+	}
+
+	return vm.Page{}, false
 }
 
 func (tlb *GMMUTLB) createNewBitmap(vaddr uint64, radius int) [8]bool {
@@ -870,6 +1038,25 @@ func (tlb *GMMUTLB) subtractBitmaps(a, b [8]bool) [8]bool {
 	result := [8]bool{}
 	for i := 0; i < 8; i++ {
 		result[i] = a[i] && !b[i]
+	}
+	return result
+}
+
+func (tlb *GMMUTLB) intersectBitmaps(a, b [8]bool) [8]bool {
+	result := [8]bool{}
+	for i := 0; i < 8; i++ {
+		result[i] = a[i] && b[i]
+	}
+	return result
+}
+
+func (tlb *GMMUTLB) firstBitBitmap(bitmap [8]bool) [8]bool {
+	result := [8]bool{}
+	for i := 0; i < 8; i++ {
+		if bitmap[i] {
+			result[i] = true
+			return result
+		}
 	}
 	return result
 }

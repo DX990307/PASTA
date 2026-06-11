@@ -68,6 +68,8 @@ var gmmuInitialPTCLMode = flag.Bool("gmmu-initial-ptcl-mode", true,
 	"Whether the GMMU L2 TLB starts in PTCL coalescing mode.")
 var gmmuVPNMSHRBaseline = flag.Bool("gmmu-vpn-mshr-baseline", false,
 	"Use a per-VPN GMMU L2 TLB MSHR baseline instead of PTCL-granularity MSHRs.")
+var gmmuPTELookupLatency = flag.Int("gmmu-pte-lookup-latency", 32,
+	"Fixed GMMU L2 TLB lookup latency per internal PTE lookup job, in cycles. PTCL mode can issue multiple lookup jobs in parallel.")
 var mmuWalkCoalescing = flag.Bool("mmu-walk-coalescing", false,
 	"Enable MMU page-walk coalescing independently of the MMUTLB prefetcher.")
 var mmutlbVPNMSHRBaseline = flag.Bool("mmutlb-vpn-mshr-baseline", false,

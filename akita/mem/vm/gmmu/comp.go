@@ -163,6 +163,7 @@ func (gmmu *GMMU) processRemoteMemReq(now sim.VTimeInSec, walkingIndex int) bool
 		WithDeviceID(walking.DeviceID).
 		WithTaskID(walking.TaskID).
 		WithOriginPort(walking.OriginPort).
+		WithPrefetch(walking.IsPrefetch).
 		Build()
 
 	err := gmmu.bottomPort.Send(req)
@@ -221,6 +222,7 @@ func (gmmu *GMMU) doPageWalkHit(
 		WithPage(walking.page).
 		WithTaskID(walking.req.TaskID).
 		WithOriginPort(walking.req.OriginPort).
+		WithPrefetch(walking.req.IsPrefetch).
 		Build()
 
 	gmmu.topSender.Send(rsp)
@@ -275,10 +277,11 @@ func (gmmu *GMMU) handleTranslationRsp(now sim.VTimeInSec, rsponse *vm.Translati
 		WithSendTime(now).
 		WithSrc(gmmu.topPort).
 		WithDst(reqTransaction.req.Src).
-		WithRspTo(rsponse.ID).
+		WithRspTo(reqTransaction.req.ID).
 		WithPage(rsponse.Page).
 		WithTaskID(reqTransaction.req.TaskID).
 		WithOriginPort(reqTransaction.req.OriginPort).
+		WithPrefetch(reqTransaction.req.IsPrefetch || rsponse.IsPrefetch).
 		Build()
 
 	gmmu.topSender.Send(rsp)
@@ -317,9 +320,11 @@ func (gmmu *GMMU) sendToGMMU(now sim.VTimeInSec, walking transaction) bool {
 			WithSendTime(now).
 			WithSrc(gmmu.topPort).
 			WithDst(req.Src).
+			WithRspTo(req.ID).
 			WithPage(page).
 			WithOriginPort(walking.req.OriginPort).
 			WithTaskID(taskID).
+			WithPrefetch(walking.req.IsPrefetch).
 			Build()
 
 		if !gmmu.topSender.CanSend(1) {

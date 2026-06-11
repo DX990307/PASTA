@@ -6,53 +6,8 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/sarchlab/akita/v3/mem/vm/tlb_gmmu"
 	"github.com/sarchlab/mgpusim/v3/timing/cu"
 )
-
-type unusedPTCLRange struct {
-	PageBlock  uint64
-	PTCLStart  uint64
-	PTCLEnd    uint64
-	UniquePTCL int
-	TotalCount int
-}
-
-func buildUnusedPTCLRanges(stats []tlb_gmmu.PrefetchUnusedPTCLStat) []unusedPTCLRange {
-	if len(stats) == 0 {
-		return nil
-	}
-
-	ranges := make([]unusedPTCLRange, 0)
-	current := unusedPTCLRange{
-		PageBlock:  stats[0].PageBlock,
-		PTCLStart:  stats[0].PTCL,
-		PTCLEnd:    stats[0].PTCL,
-		UniquePTCL: 1,
-		TotalCount: stats[0].Count,
-	}
-
-	for _, stat := range stats[1:] {
-		if stat.PageBlock == current.PageBlock && stat.PTCL == current.PTCLEnd+1 {
-			current.PTCLEnd = stat.PTCL
-			current.UniquePTCL++
-			current.TotalCount += stat.Count
-			continue
-		}
-
-		ranges = append(ranges, current)
-		current = unusedPTCLRange{
-			PageBlock:  stat.PageBlock,
-			PTCLStart:  stat.PTCL,
-			PTCLEnd:    stat.PTCL,
-			UniquePTCL: 1,
-			TotalCount: stat.Count,
-		}
-	}
-
-	ranges = append(ranges, current)
-	return ranges
-}
 
 func (r *Runner) reportStats() {
 	r.reportExecutionTime()
@@ -67,7 +22,6 @@ func (r *Runner) reportStats() {
 	r.reportGMMUCacheHitRate()
 	r.reportTLBLatency()
 	r.reportGMMUCacheLatency()
-	r.reportGMMUCachePrefetchStats()
 	r.reportRDMATransactionCount()
 	r.reportGMMUTransactionCount()
 	r.reportMMUTransactionCount()
@@ -341,6 +295,10 @@ func (r *Runner) reportGMMUCacheHitRate() {
 		toPTCL, toPTE := tracer.gmmuCache.ModeSwitchCounts()
 		totalDownstream, localDownstream, iommuDownstream :=
 			tracer.gmmuCache.DownstreamRequestCounts()
+		pteLookupDelayCount, pteLookupDelayCycles :=
+			tracer.gmmuCache.PTELookupDelayStats()
+		pteLookupMaxInflight, pteLookupMaxWaiting :=
+			tracer.gmmuCache.PTELookupQueueStats()
 		ptclModeEnabled := 0.0
 		if tracer.gmmuCache.PTCLModeEnabled() {
 			ptclModeEnabled = 1.0
@@ -385,6 +343,31 @@ func (r *Runner) reportGMMUCacheHitRate() {
 			"iommu_req_count",
 			float64(iommuDownstream),
 		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"lookup_latency_cycles_per_pte",
+			float64(tracer.gmmuCache.PTELookupLatencyCycles()),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"pte_lookup_delay_count",
+			float64(pteLookupDelayCount),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"pte_lookup_delay_cycles",
+			float64(pteLookupDelayCycles),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"pte_lookup_max_inflight_slots",
+			float64(pteLookupMaxInflight),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"pte_lookup_waiting_max_len",
+			float64(pteLookupMaxWaiting),
+		)
 
 		hit := tracer.tracer.GetStepCount("hit")
 		miss := tracer.tracer.GetStepCount("miss")
@@ -416,77 +399,6 @@ func (r *Runner) reportGMMUCacheLatency() {
 			"req_average_latency",
 			float64(tracer.tracer.AverageTime()),
 		)
-	}
-}
-
-func (r *Runner) reportGMMUCachePrefetchStats() {
-	if r.platform == nil {
-		return
-	}
-
-	for _, gpu := range r.platform.GPUs {
-		if gpu == nil || gpu.GMMUTLB == nil {
-			continue
-		}
-
-		inserted, useful, usefulHit, lateUseful, unused, residentPending :=
-			gpu.GMMUTLB.PrefetchOutcomeStats()
-		blockStats := gpu.GMMUTLB.PrefetchBlockStats()
-		unusedPTCLStats := gpu.GMMUTLB.PrefetchUnusedPTCLStats()
-
-		r.metricsCollector.Collect(gpu.GMMUTLB.Name(), "prefetch_exact_inserted", float64(inserted))
-		r.metricsCollector.Collect(gpu.GMMUTLB.Name(), "prefetch_exact_useful", float64(useful))
-		r.metricsCollector.Collect(gpu.GMMUTLB.Name(), "prefetch_exact_useful_hit", float64(usefulHit))
-		r.metricsCollector.Collect(gpu.GMMUTLB.Name(), "prefetch_exact_late_useful", float64(lateUseful))
-		r.metricsCollector.Collect(gpu.GMMUTLB.Name(), "prefetch_exact_unused", float64(unused))
-		r.metricsCollector.Collect(gpu.GMMUTLB.Name(), "prefetch_exact_resident_pending", float64(residentPending))
-
-		usefulRate := 0.0
-		if inserted > 0 {
-			usefulRate = float64(useful) / float64(inserted)
-		}
-		unusedRate := 0.0
-		if inserted > 0 {
-			unusedRate = float64(unused) / float64(inserted)
-		}
-		r.metricsCollector.Collect(gpu.GMMUTLB.Name(), "prefetch_exact_useful_rate", usefulRate)
-		r.metricsCollector.Collect(gpu.GMMUTLB.Name(), "prefetch_exact_unused_rate", unusedRate)
-
-		if inserted == 0 && useful == 0 && lateUseful == 0 && unused == 0 && residentPending == 0 {
-			continue
-		}
-
-		fmt.Printf(
-			"[PF][gpu-summary] component=%s inserted=%d useful=%d useful_hit=%d late_useful=%d unused=%d resident_pending=%d useful_rate=%.6f unused_rate=%.6f\n",
-			gpu.GMMUTLB.Name(), inserted, useful, usefulHit, lateUseful, unused, residentPending, usefulRate, unusedRate,
-		)
-
-		for _, block := range blockStats {
-			if block.Inserted == 0 && block.Useful == 0 && block.LateUseful == 0 && block.Unused == 0 && block.ResidentPending == 0 {
-				continue
-			}
-
-			blockUsefulRate := 0.0
-			if block.Inserted > 0 {
-				blockUsefulRate = float64(block.Useful) / float64(block.Inserted)
-			}
-			blockUnusedRate := 0.0
-			if block.Inserted > 0 {
-				blockUnusedRate = float64(block.Unused) / float64(block.Inserted)
-			}
-
-			fmt.Printf(
-				"[PF][gpu-bo-summary] component=%s page_block=%d inserted=%d useful=%d useful_hit=%d late_useful=%d unused=%d resident_pending=%d useful_rate=%.6f unused_rate=%.6f\n",
-				gpu.GMMUTLB.Name(), block.PageBlock, block.Inserted, block.Useful, block.UsefulHit, block.LateUseful, block.Unused, block.ResidentPending, blockUsefulRate, blockUnusedRate,
-			)
-		}
-
-		for _, ptclRange := range buildUnusedPTCLRanges(unusedPTCLStats) {
-			fmt.Printf(
-				"[PF][gpu-unused-ptcl-range] component=%s page_block=%d ptcl_start=%d ptcl_end=%d unique_ptcls=%d total_unused=%d\n",
-				gpu.GMMUTLB.Name(), ptclRange.PageBlock, ptclRange.PTCLStart, ptclRange.PTCLEnd, ptclRange.UniquePTCL, ptclRange.TotalCount,
-			)
-		}
 	}
 }
 

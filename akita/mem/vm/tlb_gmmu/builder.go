@@ -21,29 +21,31 @@ type Builder struct {
 	pageTable      vm.PageTable
 	ioMMUPort      sim.Port
 	// gmmuCacheTable map[uint64]sim.Port
-	gmmuCacheTable *mem.MultiPageFinder
-	InnerLayer     map[uint64]uint64
-	MiddleLayer    map[uint64]uint64
-	OuterLayer     map[uint64]uint64
-	setSize        int
-	ptclHighThres  int
-	ptclLowThres   int
-	initialPTCL    bool
-	perVPNMSHR     bool
+	gmmuCacheTable         *mem.MultiPageFinder
+	InnerLayer             map[uint64]uint64
+	MiddleLayer            map[uint64]uint64
+	OuterLayer             map[uint64]uint64
+	setSize                int
+	ptclHighThres          int
+	ptclLowThres           int
+	initialPTCL            bool
+	perVPNMSHR             bool
+	pteLookupLatencyCycles int
 }
 
 // MakeBuilder returns a Builder
 func MakeBuilder() Builder {
 	return Builder{
-		freq:           1 * sim.GHz,
-		numReqPerCycle: 4,
-		numSets:        1,
-		numWays:        32,
-		pageSize:       4096,
-		numMSHREntry:   4,
-		ptclHighThres:  6,
-		ptclLowThres:   2,
-		initialPTCL:    true,
+		freq:                   1 * sim.GHz,
+		numReqPerCycle:         4,
+		numSets:                1,
+		numWays:                32,
+		pageSize:               4096,
+		numMSHREntry:           4,
+		ptclHighThres:          6,
+		ptclLowThres:           2,
+		initialPTCL:            true,
+		pteLookupLatencyCycles: 32,
 	}
 }
 
@@ -65,6 +67,11 @@ func (b Builder) WithInitialPTCLMode(enabled bool) Builder {
 
 func (b Builder) WithPerVPNMSHRBaseline(enabled bool) Builder {
 	b.perVPNMSHR = enabled
+	return b
+}
+
+func (b Builder) WithPTELookupLatencyCycles(cycles int) Builder {
+	b.pteLookupLatencyCycles = cycles
 	return b
 }
 
@@ -178,6 +185,8 @@ func (b Builder) Build(name string) *GMMUTLB {
 	tlb.pageTable = b.pageTable
 	tlb.IOMMUPort = b.ioMMUPort
 	tlb.vpnMSHRBaseline = b.perVPNMSHR
+	tlb.gmmuCacheTable = b.gmmuCacheTable
+	tlb.pteLookupLatencyCycles = b.pteLookupLatencyCycles
 	lowThres := b.ptclLowThres
 	highThres := b.ptclHighThres
 	if lowThres > highThres {
@@ -189,10 +198,7 @@ func (b Builder) Build(name string) *GMMUTLB {
 	if tlb.ptclMode {
 		tlb.coalescingCounter = tlb.ptclHighThreshold
 	}
-	tlb.prefetchedResidentEntries = make(map[prefetchResidentKey]*prefetchedResidentState)
-	tlb.prefetchOutcomeByBlock = make(map[uint64]*prefetchOutcomeCounts)
-	tlb.prefetchUnusedPTCLByBlock = make(map[uint64]map[uint64]int)
-	tlb.prefetchFeedbackStateByBlock = make(map[uint64]vm.PrefetchFeedbackState)
+	tlb.pteLookupGroups = make(map[pteLookupGroupKey]*pteLookupGroup)
 
 	b.createPorts(name, tlb)
 

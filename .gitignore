@@ -11,10 +11,19 @@ __pycache__/
 
 # Experiment outputs
 akkalat/results/
+akkalat/results2/
+akkalat/host_ptcl_probe/results/
+Neighbor/akkalat/results/
+Neighbor/akkalat/results2/
+Neighbor/akkalat/host_ptcl_probe/results/
+vanilla/akkalat/results/
+vanilla/akkalat/results2/
+vanilla/akkalat/host_ptcl_probe/results/
 
 # Common generated files
 .DS_Store
 .gocache/
+**/.gocache/
 *.log
 *.out
 *.trace
@@ -32,3 +41,16 @@ akkalat/2MB/2MB
 akkalat/400latency/400latency
 akkalat/400latency/metrics.csv
 akkalat/TLBSensitiveStudy/TLBSensitiveStudy
+akkalat/.codex-400latency-build
+akkalat/host_ptcl_probe/ptcl_probe
+mgpusim/samples/llmop/llmop
+Neighbor/akita/noc/acceptance/pcie_p2p_domained/pcie_p2p_domained
+Neighbor/akkalat/400latency/400latency
+Neighbor/akkalat/.codex-400latency-build
+Neighbor/akkalat/host_ptcl_probe/ptcl_probe
+Neighbor/mgpusim/samples/llmop/llmop
+vanilla/akkalat/400latency/400latency
+vanilla/akkalat/.codex-400latency-build
+vanilla/akkalat/host_ptcl_probe/ptcl_probe
+vanilla/akita/noc/acceptance/pcie_p2p_domained/pcie_p2p_domained
+vanilla/mgpusim/samples/llmop/llmop

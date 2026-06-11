@@ -50,16 +50,9 @@ BASE_COMMON_FLAGS = [
 DEFAULT_ADAPTIVE_LOW = 2
 DEFAULT_ADAPTIVE_HIGH = 6
 DEFAULT_MMUTLB_LOOKUP_LATENCY = 80
+DEFAULT_GMMU_PTE_LOOKUP_LATENCY = 32
 DEFAULT_CONFIGS = "baseline,camsat"
 DEFAULT_PAGE_SIZES = "16kb,32kb,2mb"
-
-PREFETCH_FLAGS = [
-    "-mmutlb-prefetch",
-    "-mmutlb-prefetch-admission=6",
-    "-mmutlb-prefetch-max-learners=4",
-    "-mmutlb-prefetch-lookahead=2",
-    "-mmutlb-prefetch-max-candidates=4",
-]
 
 COALESCING_FLAGS = [
     "-mmu-walk-coalescing",
@@ -123,11 +116,18 @@ def parse_args():
         help="Fixed MMUTLB/IOTLB lookup latency per requested PTE (per bitmap bit), in cycles.",
     )
     parser.add_argument(
+        "--gmmu-pte-lookup-latency",
+        dest="gmmu_pte_lookup_latency",
+        type=int,
+        default=DEFAULT_GMMU_PTE_LOOKUP_LATENCY,
+        help="Fixed GMMU L2 TLB lookup latency per internal PTE lookup job, in cycles.",
+    )
+    parser.add_argument(
         "--configs",
         default=DEFAULT_CONFIGS,
         help=(
             "Comma-separated configs to run. Available: "
-            "baseline,ptcl_mode,prefetching,coalescing,camsat. "
+            "baseline,ptcl_mode,coalescing,camsat. "
             f"Default: {DEFAULT_CONFIGS}"
         ),
     )
@@ -154,6 +154,7 @@ def adaptive_flags(low, high):
 def build_common_flags(args):
     return BASE_COMMON_FLAGS + [
         f"-mmutlb-ptcl-return-latency={args.mmutlb_ptcl_return_latency}",
+        f"-gmmu-pte-lookup-latency={args.gmmu_pte_lookup_latency}",
     ]
 
 
@@ -163,9 +164,8 @@ def base_configs(args):
     return {
         "baseline": VPN_MSHR_BASELINE_FLAGS,
         "ptcl_mode": adaptive_flags(low, high),
-        "prefetching": VPN_MSHR_BASELINE_FLAGS + PREFETCH_FLAGS,
         "coalescing": VPN_MSHR_BASELINE_FLAGS + COALESCING_FLAGS,
-        "camsat": adaptive_flags(low, high) + COALESCING_FLAGS + PREFETCH_FLAGS,
+        "camsat": adaptive_flags(low, high) + COALESCING_FLAGS,
     }
 
 

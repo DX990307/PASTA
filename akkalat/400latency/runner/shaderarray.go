@@ -261,6 +261,7 @@ func (b *shaderArrayBuilder) buildCUs(sa *shaderArray) {
 	cuBuilder := cu.MakeBuilder().
 		WithEngine(b.engine).
 		WithFreq(b.freq).
+		WithGPUID(b.gpuID).
 		WithLog2CachelineSize(b.log2CacheLineSize)
 
 	for i := 0; i < b.numCU; i++ {
@@ -326,7 +327,7 @@ func (b *shaderArrayBuilder) buildL1VTLBs(sa *shaderArray) {
 	builder := tlb.MakeBuilder().
 		WithEngine(b.engine).
 		WithFreq(b.freq).
-		WithNumMSHREntry(4).
+		WithNumMSHREntry(16).
 		WithNumSets(1).
 		WithNumWays(32).
 		WithNumReqPerCycle(4)

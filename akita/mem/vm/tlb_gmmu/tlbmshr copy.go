@@ -9,17 +9,15 @@ import (
 )
 
 type mshrEntry struct {
-	pid               vm.PID
-	baseVAddr         uint64
-	UplevelBitMap     [8]bool
-	UplevelBitMapTime [8]int
-	IssuedBitMap      [8]bool
-	ResponseBitMap    [8]bool
-	Requests          []*vm.TranslationReq
-	reqToBottom       *vm.TranslationReq
-	Pages             [8]vm.Page // 替换为固定大小的 array
-	RealAddrBitmap    [8]bool
-	TranslatedBitmap  [8]bool
+	pid            vm.PID
+	baseVAddr      uint64
+	UplevelBitMap  [8]bool
+	IssuedBitMap   [8]bool
+	ResponseBitMap [8]bool
+	Requests       []*vm.TranslationReq
+	reqToBottom    *vm.TranslationReq
+	Pages          [8]vm.Page
+	RealAddrBitmap [8]bool
 	// startPage     [8]int
 }
 
@@ -44,23 +42,14 @@ func (e *mshrEntry) IsReady() bool {
 type mshr interface {
 	Add(pid vm.PID, addr uint64, now sim.VTimeInSec, predictRadius int) *mshrEntry
 	Remove(pid vm.PID, addr uint64) *mshrEntry
-	AllEntries() []*mshrEntry
 	IsFull() bool
 	IsEntryFull(pid vm.PID, vAddr uint64) bool
 	Reset()
 	GetEntry(pid vm.PID, vAddr uint64) *mshrEntry
 	IsEntryPresent(pid vm.PID, vAddr uint64) bool
-	PrintStats() (uint64, uint64, uint64)
-	GetUpLevelBitMap(pid vm.PID, vAddr uint64) ([8]bool, bool)
 	UpdateUpLevelBitMap(pid vm.PID, vAddr uint64, now sim.VTimeInSec, predictRadius int) bool
 	UpdatePage(pid vm.PID, vAddr uint64, page vm.Page) bool
-	GetPages(pid vm.PID, vAddr uint64) ([8]vm.Page, bool)
-	IsReady(pid vm.PID, vAddr uint64) bool
-	GetNonZeroElementsfromBitmap(pid vm.PID, vaddr uint64) int
 	UpdateResponseBitMap(pid vm.PID, vAddr uint64) bool
-	GetResponseBitMap(pid vm.PID, vAddr uint64) ([8]bool, bool)
-	IsPredicted(pid vm.PID, vAddr uint64) bool
-	// UpdateBitMap(pid vm.PID, vAddr uint64) bool
 }
 
 type mshrImpl struct {
@@ -88,40 +77,27 @@ func newMSHR(
 }
 
 func (m *mshrImpl) Add(pid vm.PID, vAddr uint64, now sim.VTimeInSec, predictRadius int) *mshrEntry {
-	BaseVaddr := m.getEntryVAddr(vAddr)
-	VPN := vAddr >> m.log2PageSize
-	for _, e := range m.entries {
-		if e.pid == pid && e.baseVAddr == BaseVaddr {
-			m.UpdateUpLevelBitMap(pid, vAddr, now, predictRadius)
-			return e
-		}
+	if entry, _ := m.findEntry(pid, vAddr); entry != nil {
+		m.UpdateUpLevelBitMap(pid, vAddr, now, predictRadius)
+		return entry
 	}
 
 	if len(m.entries) >= m.capacity {
 		log.Panic("MSHR is full")
 	}
 
+	BaseVaddr := m.getEntryVAddr(vAddr)
+	VPN := vAddr >> m.log2PageSize
 	entry := newMSHREntry()
 	entry.pid = pid
-	entry.baseVAddr = BaseVaddr // 添加缺失的 baseVAddr 设置
+	entry.baseVAddr = BaseVaddr
 	bitMap := [8]bool{}
-	TimeBitMap := [8]int{}
 	RealAddrBitmap := [8]bool{}
-
-	for i := 0; i < 8; i++ {
-		TimeBitMap[i] = 0
-	}
-
-	for i := 0; i < 8; i++ {
-		bitMap[i] = false
-	}
 
 	bitMap[VPN%8] = true
 	RealAddrBitmap[VPN%8] = true
-	TimeBitMap[VPN%8] = int(now * 1e9) // 将时间转换为纳秒存储为整数
 
 	entry.UplevelBitMap = bitMap
-	entry.UplevelBitMapTime = TimeBitMap
 	entry.RealAddrBitmap = RealAddrBitmap
 
 	m.entries = append(m.entries, entry)
@@ -129,14 +105,13 @@ func (m *mshrImpl) Add(pid vm.PID, vAddr uint64, now sim.VTimeInSec, predictRadi
 }
 
 func (m *mshrImpl) Remove(pid vm.PID, vAddr uint64) *mshrEntry {
-	BaseVaddr := m.getEntryVAddr(vAddr)
-	for i, e := range m.entries {
-		if e.pid == pid && e.baseVAddr == BaseVaddr {
-			m.entries = append(m.entries[:i], m.entries[i+1:]...)
-			return e
-		}
+	entry, index := m.findEntry(pid, vAddr)
+	if entry == nil {
+		panic("trying to remove an non-exist entry")
 	}
-	panic("trying to remove an non-exist entry")
+
+	m.entries = append(m.entries[:index], m.entries[index+1:]...)
+	return entry
 }
 
 func (m *mshrImpl) AllEntries() []*mshrEntry {
@@ -152,33 +127,18 @@ func (m *mshrImpl) Reset() {
 }
 
 func (m *mshrImpl) GetEntry(pid vm.PID, vAddr uint64) *mshrEntry {
-	BaseVaddr := m.getEntryVAddr(vAddr)
-	for _, e := range m.entries {
-		if e.pid == pid && e.baseVAddr == BaseVaddr {
-			return e
-		}
-	}
-	return nil
+	entry, _ := m.findEntry(pid, vAddr)
+	return entry
 }
 
 func (m *mshrImpl) IsEntryPresent(pid vm.PID, vAddr uint64) bool {
-	BaseVaddr := m.getEntryVAddr(vAddr)
-	for _, e := range m.entries {
-		if e.pid == pid && e.baseVAddr == BaseVaddr {
-			return true
-		}
-	}
-	return false
+	entry, _ := m.findEntry(pid, vAddr)
+	return entry != nil
 }
 
 func (m *mshrImpl) IsEntryFull(pid vm.PID, vAddr uint64) bool {
-	BaseVaddr := m.getEntryVAddr(vAddr)
-	for _, e := range m.entries {
-		if e.pid == pid && e.baseVAddr == BaseVaddr {
-			return len(e.Requests) >= m.entryDepth
-		}
-	}
-	return false
+	entry, _ := m.findEntry(pid, vAddr)
+	return entry != nil && len(entry.Requests) >= m.entryDepth
 }
 
 func (m *mshrImpl) PrintStats() (uint64, uint64, uint64) {
@@ -209,55 +169,58 @@ func (m *mshrImpl) getEntryVAddr(vAddr uint64) uint64 {
 	return m.getBaseVaddr(vAddr)
 }
 
-func (m *mshrImpl) GetUpLevelBitMap(pid vm.PID, vAddr uint64) ([8]bool, bool) {
+func (m *mshrImpl) findEntry(pid vm.PID, vAddr uint64) (*mshrEntry, int) {
 	BaseVaddr := m.getEntryVAddr(vAddr)
-	for _, e := range m.entries {
+	for i, e := range m.entries {
 		if e.pid == pid && e.baseVAddr == BaseVaddr {
-			return e.UplevelBitMap, true
+			return e, i
 		}
 	}
 
-	return [8]bool{}, false
+	return nil, -1
+}
+
+func (m *mshrImpl) GetUpLevelBitMap(pid vm.PID, vAddr uint64) ([8]bool, bool) {
+	entry, _ := m.findEntry(pid, vAddr)
+	if entry == nil {
+		return [8]bool{}, false
+	}
+
+	return entry.UplevelBitMap, true
 }
 
 func (m *mshrImpl) UpdateUpLevelBitMap(pid vm.PID, vAddr uint64, now sim.VTimeInSec, predictRadius int) bool {
-	BaseVaddr := m.getEntryVAddr(vAddr)
-	for _, e := range m.entries {
-		if e.pid == pid && e.baseVAddr == BaseVaddr {
-			bitmap := e.UplevelBitMap
-			timeBitmap := e.UplevelBitMapTime
-			realAddrBitmap := e.RealAddrBitmap
-			VPN := vAddr >> m.log2PageSize
-
-			bitmap[VPN%8] = true
-			timeBitmap[VPN%8] = int(now * 1e9)
-			realAddrBitmap[VPN%8] = true
-
-			e.UplevelBitMapTime = timeBitmap
-			e.UplevelBitMap = bitmap
-			e.RealAddrBitmap = realAddrBitmap
-			return true
-		}
+	entry, _ := m.findEntry(pid, vAddr)
+	if entry == nil {
+		return false
 	}
-	return false
+
+	bitmap := entry.UplevelBitMap
+	realAddrBitmap := entry.RealAddrBitmap
+	VPN := vAddr >> m.log2PageSize
+
+	bitmap[VPN%8] = true
+	realAddrBitmap[VPN%8] = true
+
+	entry.UplevelBitMap = bitmap
+	entry.RealAddrBitmap = realAddrBitmap
+	return true
 }
 
 func (m *mshrImpl) SavePage(Page vm.Page) bool {
-	BaseVaddr := m.getEntryVAddr(Page.VAddr)
-	for _, e := range m.entries {
-		if e.pid == Page.PID && e.baseVAddr == BaseVaddr {
-			// 计算在 8 页数组中的索引 (0-7)
-			VPN := Page.VAddr >> m.log2PageSize
-			BaseVPN := BaseVaddr >> m.log2PageSize
-			offset := int(VPN - BaseVPN)
-			if offset >= 0 && offset < 8 {
-				e.Pages[offset] = Page
-				e.ResponseBitMap[offset] = true
-				return true
-			}
-			fmt.Printf("Invalid offset %d for vAddr\n", offset)
-		}
+	entry, _ := m.findEntry(Page.PID, Page.VAddr)
+	if entry == nil {
+		return false
 	}
+
+	offset := m.getVaddrOffset(Page.VAddr)
+	if offset >= 0 && offset < 8 {
+		entry.Pages[offset] = Page
+		entry.ResponseBitMap[offset] = true
+		return true
+	}
+
+	fmt.Printf("Invalid offset %d for vAddr\n", offset)
 	return false
 }
 
@@ -268,101 +231,90 @@ func (m *mshrImpl) getVaddrOffset(vAddr uint64) int {
 }
 
 func (m *mshrImpl) UpdatePage(pid vm.PID, vAddr uint64, page vm.Page) bool {
-	BaseVaddr := m.getEntryVAddr(vAddr)
-	for _, e := range m.entries {
-		if e.pid == pid && e.baseVAddr == BaseVaddr {
-			// 计算在 8 页数组中的索引 (0-7)
-			offset := m.getVaddrOffset(vAddr)
-			if offset >= 0 && offset < 8 {
-				e.Pages[offset] = page
-				e.ResponseBitMap[offset] = true
-				return true
-			}
-			fmt.Printf("Invalid offset %d for vAddr %d in MSHR for PID %d\n", offset, vAddr, pid)
-		}
+	entry, _ := m.findEntry(pid, vAddr)
+	if entry == nil {
+		return false
 	}
+
+	offset := m.getVaddrOffset(vAddr)
+	if offset >= 0 && offset < 8 {
+		entry.Pages[offset] = page
+		entry.ResponseBitMap[offset] = true
+		return true
+	}
+
+	fmt.Printf("Invalid offset %d for vAddr %d in MSHR for PID %d\n", offset, vAddr, pid)
 	return false
 }
 
 func (m *mshrImpl) GetPages(pid vm.PID, vAddr uint64) ([8]vm.Page, bool) {
 	var pages [8]vm.Page
-	BaseVaddr := m.getEntryVAddr(vAddr)
-	for _, e := range m.entries {
-		if e.pid == pid && e.baseVAddr == BaseVaddr {
-			// 将指针数组转换为值数组
-			for i := 0; i < 8; i++ {
-				if e.Pages[i] != (vm.Page{}) {
-					pages[i] = e.Pages[i]
-				}
-				// 如果 e.Page[i] 是零值，pages[i] 保持零值
-			}
-			return pages, true
+	entry, _ := m.findEntry(pid, vAddr)
+	if entry == nil {
+		return pages, false
+	}
+
+	for i := 0; i < 8; i++ {
+		if entry.Pages[i] != (vm.Page{}) {
+			pages[i] = entry.Pages[i]
 		}
 	}
-	return pages, false
+	return pages, true
 }
 
 func (m *mshrImpl) IsReady(pid vm.PID, vAddr uint64) bool {
-	BaseVaddr := m.getEntryVAddr(vAddr)
-	for _, e := range m.entries {
-		if e.pid == pid && e.baseVAddr == BaseVaddr {
-			return e.IsReady()
-		}
+	entry, _ := m.findEntry(pid, vAddr)
+	if entry == nil {
+		return false
 	}
-	return false // 找不到对应的 MSHR 条目
+
+	return entry.IsReady()
 }
 
 func (m *mshrImpl) GetNonZeroElementsfromBitmap(pid vm.PID, vaddr uint64) int {
-	BaseVAddr := m.getEntryVAddr(vaddr)
-	for _, e := range m.entries {
-		if e.baseVAddr == BaseVAddr && e.pid == pid {
-			count := 0
-			for _, bit := range e.RealAddrBitmap {
-				if bit {
-					count++
-				}
-			}
-			return count
+	entry, _ := m.findEntry(pid, vaddr)
+	if entry == nil {
+		return 0
+	}
+
+	count := 0
+	for _, bit := range entry.RealAddrBitmap {
+		if bit {
+			count++
 		}
 	}
-	return 0
+	return count
 }
 
 func (m *mshrImpl) UpdateResponseBitMap(pid vm.PID, vAddr uint64) bool {
-	BaseVaddr := m.getEntryVAddr(vAddr)
-	for _, e := range m.entries {
-		if e.pid == pid && e.baseVAddr == BaseVaddr {
-			bitmap := e.ResponseBitMap
-			VPN := vAddr >> m.log2PageSize
-
-			bitmap[VPN%8] = true
-
-			e.ResponseBitMap = bitmap
-			return true
-		}
+	entry, _ := m.findEntry(pid, vAddr)
+	if entry == nil {
+		return false
 	}
-	return false
+
+	bitmap := entry.ResponseBitMap
+	VPN := vAddr >> m.log2PageSize
+
+	bitmap[VPN%8] = true
+	entry.ResponseBitMap = bitmap
+	return true
 }
 
 func (m *mshrImpl) GetResponseBitMap(pid vm.PID, vAddr uint64) ([8]bool, bool) {
-	BaseVaddr := m.getEntryVAddr(vAddr)
-	for _, e := range m.entries {
-		if e.pid == pid && e.baseVAddr == BaseVaddr {
-			return e.ResponseBitMap, true
-		}
+	entry, _ := m.findEntry(pid, vAddr)
+	if entry == nil {
+		return [8]bool{}, false
 	}
 
-	return [8]bool{}, false
+	return entry.ResponseBitMap, true
 }
 
 func (m *mshrImpl) IsPredicted(pid vm.PID, vAddr uint64) bool {
-	BaseVaddr := m.getEntryVAddr(vAddr)
-	for _, e := range m.entries {
-		if e.pid == pid && e.baseVAddr == BaseVaddr {
-			// 检查 UplevelBitMap 是否有任何位被设置为 true
-			VPN := vAddr >> m.log2PageSize
-			return e.UplevelBitMap[VPN%8]
-		}
+	entry, _ := m.findEntry(pid, vAddr)
+	if entry == nil {
+		return false
 	}
-	return false // 找不到对应的 MSHR 条目
+
+	VPN := vAddr >> m.log2PageSize
+	return entry.UplevelBitMap[VPN%8]
 }
