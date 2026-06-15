@@ -1563,6 +1563,11 @@ func (tlb *GMMUTLB) isPageResident(page vm.Page) bool {
 		return false
 	}
 
+	if tlb.flexTLBEnabled && tlb.flex != nil {
+		foundPage, _, found := tlb.flex.lookupPTE(page.PID, page.VAddr)
+		return found && foundPage.Valid
+	}
+
 	setID := tlb.vAddrToSetID(page.VAddr)
 	_, foundPage, found := tlb.Sets[setID].Lookup(page.PID, page.VAddr)
 	return found && foundPage.Valid
@@ -1697,6 +1702,10 @@ func (tlb *GMMUTLB) residentBitmap(
 ) [8]bool {
 	baseVAddr := tlb.getBaseVaddr(vAddr)
 	resident := [8]bool{}
+
+	if tlb.flexTLBEnabled && tlb.flex != nil {
+		return tlb.flex.residentBitmap(pid, baseVAddr, bitmap)
+	}
 
 	for i := 0; i < 8; i++ {
 		if !bitmap[i] {

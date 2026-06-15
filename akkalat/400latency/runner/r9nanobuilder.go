@@ -618,7 +618,7 @@ func (b *R9NanoGPUBuilder) buildGMMUCache() {
 		WithNumWays(16).
 		WithNumSets(32).
 		WithNumMSHREntry(32).
-		WithNumReqPerCycle(32).
+		WithNumReqPerCycle(16).
 		WithPageSize(1<<b.log2PageSize).
 		WithLowModule(b.gmmu.GetPortByName("Top")).
 		WithDeviceID(b.gpuID).
@@ -629,6 +629,8 @@ func (b *R9NanoGPUBuilder) buildGMMUCache() {
 		WithInitialPTCLMode(*gmmuInitialPTCLMode).
 		WithPerVPNMSHRBaseline(*gmmuVPNMSHRBaseline).
 		WithPTELookupLatencyCycles(*gmmuPTELookupLatency).
+		WithFlexTLB(*gmmuFlexTLB).
+		WithFlexPromotionThreshold(*gmmuFlexPromotionThreshold).
 		WithLocalPTWStateProvider(b.gmmu).
 		WithTranslationPrefetcher(*gmmuPrefetch).
 		WithPrefetchAdmissionThreshold(*gmmuPrefetchAdmission).

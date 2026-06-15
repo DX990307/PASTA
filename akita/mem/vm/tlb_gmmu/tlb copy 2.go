@@ -37,11 +37,14 @@ type GMMUTLB struct {
 	TopPortBuffer  []sim.Msg
 
 	Sets []internal.Set
+	flex *flexTLBStore
 
 	mshr                            mshr
 	respondingMSHREntry             []*mshrEntry
 	log2Pagesize                    uint64
 	vpnMSHRBaseline                 bool
+	flexTLBEnabled                  bool
+	flexPromotionThreshold          int
 	ptclMode                        bool
 	coalescingCounter               int
 	ptclHighThreshold               int
@@ -63,6 +66,19 @@ type GMMUTLB struct {
 	pteLookupDelayCycles            int
 	pteLookupMaxInflight            int
 	pteLookupMaxWaiting             int
+	flexLookupJobs                  int
+	flexLookupRequestedBits         int
+	flexLookupHitBits               int
+	flexLookupMissBits              int
+	flexLookupSavedJobs             int
+	flexPTEPackHits                 int
+	flexPTCLLineHits                int
+	flexPartialPTCLHits             int
+	flexFullPTCLHits                int
+	flexPromotions                  int
+	flexDemotions                   int
+	flexInvalidatedPTEPackSlots     int
+	flexEvictedValidSlotsForPTCL    int
 	prefetcher                      *translationPrefetcher
 	prefetchQueue                   []prefetchQueueEntry
 	queuedPrefetches                map[prefetchTargetKey]struct{}
@@ -107,11 +123,14 @@ type pteLookupGroup struct {
 }
 
 type pteLookupJob struct {
-	groupKey  pteLookupGroupKey
-	req       *vm.TranslationReq
-	vAddr     uint64
-	bit       int
-	readyTime sim.VTimeInSec
+	groupKey     pteLookupGroupKey
+	req          *vm.TranslationReq
+	vAddr        uint64
+	bit          int
+	flexLookup   bool
+	baseVAddr    uint64
+	lookupBitmap [8]bool
+	readyTime    sim.VTimeInSec
 }
 
 // Reset sets all the entries int he TLB to be invalid
@@ -121,12 +140,24 @@ func (tlb *GMMUTLB) reset() {
 		set := internal.NewSet(tlb.numWays)
 		tlb.Sets[i] = set
 	}
+	if tlb.flexTLBEnabled {
+		tlb.flex = newFlexTLBStore(
+			tlb.numSets,
+			tlb.numWays,
+			tlb.pageSize,
+			tlb.log2Pagesize,
+			tlb.flexPromotionThreshold,
+		)
+	} else {
+		tlb.flex = nil
+	}
 
 	tlb.clearPTELookups()
 	tlb.pteLookupDelayCount = 0
 	tlb.pteLookupDelayCycles = 0
 	tlb.pteLookupMaxInflight = 0
 	tlb.pteLookupMaxWaiting = 0
+	tlb.resetFlexStats()
 	tlb.resetPrefetchState()
 	tlb.resetDemandTranslationLatencyState()
 }
@@ -422,6 +453,34 @@ func (tlb *GMMUTLB) enqueuePTELookupJobsWithBitmap(
 	}
 
 	baseVAddr := tlb.getBaseVaddr(req.VAddr)
+	if tlb.flexTLBEnabled {
+		lookupBits := tlb.bitmapCount(toLookup)
+		tlb.pteLookupWaitingQueue = append(tlb.pteLookupWaitingQueue, pteLookupJob{
+			groupKey:     key,
+			req:          req,
+			vAddr:        req.VAddr,
+			bit:          -1,
+			flexLookup:   true,
+			baseVAddr:    baseVAddr,
+			lookupBitmap: toLookup,
+		})
+		group.remainingJobs++
+		entry.IssuedBitMap = tlb.mergeBitmaps(entry.IssuedBitMap, toLookup)
+		group.lookupBitmap = tlb.mergeBitmaps(group.lookupBitmap, toLookup)
+
+		tlb.pteLookupDelayCount++
+		tlb.pteLookupDelayCycles += tlb.pteLookupLatencyCycles
+		tlb.flexLookupJobs++
+		tlb.flexLookupRequestedBits += lookupBits
+		if lookupBits > 1 {
+			tlb.flexLookupSavedJobs += lookupBits - 1
+		}
+		if len(tlb.pteLookupWaitingQueue) > tlb.pteLookupMaxWaiting {
+			tlb.pteLookupMaxWaiting = len(tlb.pteLookupWaitingQueue)
+		}
+		return
+	}
+
 	for i := 0; i < 8; i++ {
 		if !toLookup[i] {
 			continue
@@ -500,6 +559,10 @@ func (tlb *GMMUTLB) processReadyPTELookupJob(
 	now sim.VTimeInSec,
 	job pteLookupJob,
 ) bool {
+	if job.flexLookup {
+		return tlb.processReadyFlexLookupJob(now, job)
+	}
+
 	group := tlb.pteLookupGroups[job.groupKey]
 
 	setID := tlb.vAddrToSetID(job.vAddr)
@@ -522,6 +585,69 @@ func (tlb *GMMUTLB) processReadyPTELookupJob(
 		if group.remainingJobs == 0 {
 			tlb.finishPTELookupGroup(group)
 		}
+	}
+
+	return true
+}
+
+func (tlb *GMMUTLB) processReadyFlexLookupJob(
+	now sim.VTimeInSec,
+	job pteLookupJob,
+) bool {
+	group := tlb.pteLookupGroups[job.groupKey]
+	if group == nil {
+		return true
+	}
+
+	if tlb.flex == nil {
+		group.missBitmap = tlb.mergeBitmaps(group.missBitmap, job.lookupBitmap)
+		group.remainingJobs--
+		if group.remainingJobs == 0 {
+			tlb.finishPTELookupGroup(group)
+		}
+		return true
+	}
+
+	result := tlb.flex.lookupBitmap(
+		job.req.PID,
+		job.baseVAddr,
+		job.lookupBitmap,
+	)
+	hitBits := tlb.bitmapCount(result.hitBitmap)
+	missBits := tlb.bitmapCount(result.missBitmap)
+	tlb.flexLookupHitBits += hitBits
+	tlb.flexLookupMissBits += missBits
+	tlb.flexPTEPackHits += result.ptePackHits
+	tlb.flexPTCLLineHits += result.ptclLineHits
+	if result.partialPTCLHit {
+		tlb.flexPartialPTCLHits++
+	}
+	if result.fullPTCLHit {
+		tlb.flexFullPTCLHits++
+	}
+
+	mshrEntry := tlb.mshr.GetEntry(job.req.PID, job.req.VAddr)
+	if mshrEntry != nil {
+		for i := 0; i < 8; i++ {
+			if !result.hitBitmap[i] {
+				continue
+			}
+
+			page := result.pages[i]
+			if !page.Valid {
+				continue
+			}
+			tlb.observePrefetchUsefulHit(page)
+			tlb.mshr.UpdatePage(page.PID, page.VAddr, page)
+			tlb.mshr.UpdateResponseBitMap(page.PID, page.VAddr)
+		}
+		tlb.scheduleReadyMSHREntry(now, mshrEntry, false)
+	}
+
+	group.missBitmap = tlb.mergeBitmaps(group.missBitmap, result.missBitmap)
+	group.remainingJobs--
+	if group.remainingJobs == 0 {
+		tlb.finishPTELookupGroup(group)
 	}
 
 	return true
@@ -741,6 +867,11 @@ func (tlb *GMMUTLB) handleTLBFlush(now sim.VTimeInSec, req *FlushReq) bool {
 	}
 
 	for _, vAddr := range req.VAddr {
+		if tlb.flexTLBEnabled && tlb.flex != nil {
+			tlb.flex.invalidateVPN(req.PID, vAddr)
+			continue
+		}
+
 		setID := tlb.vAddrToSetID(vAddr)
 		set := tlb.Sets[setID]
 		wayID, page, found := set.Lookup(req.PID, vAddr)
@@ -871,8 +1002,11 @@ func (tlb *GMMUTLB) completePTCLRepresentativeRsp(
 
 	demandBitmap := tlb.intersectBitmaps(
 		representedBitmap,
-		mshrEntry.RealAddrBitmap,
+		mshrEntry.UplevelBitMap,
 	)
+	pagesToInstall := [8]vm.Page{}
+	fillBitmap := [8]bool{}
+
 	for i := 0; i < 8; i++ {
 		if !demandBitmap[i] {
 			continue
@@ -888,7 +1022,8 @@ func (tlb *GMMUTLB) completePTCLRepresentativeRsp(
 			}
 		}
 
-		tlb.installPage(page)
+		pagesToInstall[i] = page
+		fillBitmap[i] = true
 
 		if entry := tlb.mshr.GetEntry(page.PID, page.VAddr); entry != nil {
 			mshrEntry = entry
@@ -897,6 +1032,7 @@ func (tlb *GMMUTLB) completePTCLRepresentativeRsp(
 		}
 	}
 
+	tlb.installBitmapPages(representativePage.PID, key.baseVAddr, pagesToInstall, fillBitmap)
 	tlb.scheduleReadyMSHREntry(now, mshrEntry, true)
 	return true
 }
@@ -923,6 +1059,14 @@ func (tlb *GMMUTLB) scheduleReadyMSHREntry(
 }
 
 func (tlb *GMMUTLB) installPage(page vm.Page) bool {
+	if tlb.flexTLBEnabled && tlb.flex != nil {
+		evictedPages := tlb.flex.fillPTE(page)
+		for _, evictedPage := range evictedPages {
+			tlb.recordPrefetchEviction(evictedPage)
+		}
+		return true
+	}
+
 	setID := tlb.vAddrToSetID(page.VAddr)
 	set := tlb.Sets[setID]
 	wayID, ok, evictedPage := tlb.Sets[setID].Evict()
@@ -935,6 +1079,39 @@ func (tlb *GMMUTLB) installPage(page vm.Page) bool {
 	set.Update(wayID, page)
 	set.Visit(wayID)
 	return true
+}
+
+func (tlb *GMMUTLB) installBitmapPages(
+	pid vm.PID,
+	baseVAddr uint64,
+	pages [8]vm.Page,
+	bitmap [8]bool,
+) bool {
+	if tlb.isBitmapZero(bitmap) {
+		return false
+	}
+
+	if tlb.flexTLBEnabled && tlb.flex != nil {
+		result := tlb.flex.fillBitmap(pid, baseVAddr, pages, bitmap)
+		for _, evictedPage := range result.evictedPages {
+			tlb.recordPrefetchEviction(evictedPage)
+		}
+		if result.promotedToPTCLLine {
+			tlb.flexPromotions++
+		}
+		tlb.flexInvalidatedPTEPackSlots += result.invalidatedPTEPackSlots
+		tlb.flexEvictedValidSlotsForPTCL += result.evictedValidSlotsForPTCL
+		return true
+	}
+
+	installed := false
+	for i := 0; i < 8; i++ {
+		if !bitmap[i] || !pages[i].Valid {
+			continue
+		}
+		installed = tlb.installPage(pages[i]) || installed
+	}
+	return installed
 }
 
 func (tlb *GMMUTLB) retrieveRsp(now sim.VTimeInSec, bottom bool) {
@@ -1260,14 +1437,18 @@ func (tlb *GMMUTLB) ptclActivationDemandBits(entry *mshrEntry) (scoreBits, total
 
 func (tlb *GMMUTLB) adaptiveDelta(scoreBits int) int {
 	if scoreBits <= 1 {
-		return -7
+		return -2
 	}
 
-	if scoreBits >= 7 {
+	if scoreBits <= 3 {
+		return -1
+	}
+
+	if scoreBits <= 5 {
 		return 1
 	}
 
-	return -2
+	return 2
 }
 
 func (tlb *GMMUTLB) recordAdaptiveDelta(delta int) {

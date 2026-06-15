@@ -70,6 +70,10 @@ var gmmuVPNMSHRBaseline = flag.Bool("gmmu-vpn-mshr-baseline", false,
 	"Use a per-VPN GMMU L2 TLB MSHR baseline instead of PTCL-granularity MSHRs.")
 var gmmuPTELookupLatency = flag.Int("gmmu-pte-lookup-latency", 32,
 	"Fixed GMMU L2 TLB lookup latency per internal PTE lookup job, in cycles. PTCL mode can issue multiple lookup jobs in parallel.")
+var gmmuFlexTLB = flag.Bool("gmmu-flex-tlb", false,
+	"Enable the Flex-PTCL/PTE entry format in the GMMU L2 TLB.")
+var gmmuFlexPromotionThreshold = flag.Int("gmmu-flex-promotion-threshold", 3,
+	"The minimum valid response bits required before Flex stores a PTCL-line entry.")
 var gmmuPrefetch = flag.Bool("gmmu-prefetch", false,
 	"Enable the BO-aware PTCL translation prefetcher in the GMMU L2 TLB.")
 var gmmuPrefetchAdmission = flag.Int("gmmu-prefetch-admission", 3,

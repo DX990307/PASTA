@@ -118,6 +118,7 @@ DEFAULT_ADAPTIVE_THRESHOLD_PAIRS = "0:2,1:4,2:6,2:8,4:12,4:16,8:24"
 DEFAULT_MMUTLB_PTCL_RETURN_LATENCY = 80
 DEFAULT_MMUTLB_LOOKUP_LATENCY = 80
 DEFAULT_GMMU_PTE_LOOKUP_LATENCY = 32
+DEFAULT_GMMU_FLEX_PROMOTION_THRESHOLD = 3
 DEFAULT_TIMEOUT_MINUTES = 0.0
 DEFAULT_PHOTON_SAMPLED_WARMUP = 512
 DEFAULT_PHOTON_SAMPLED_GRANULARITY = 512
@@ -162,6 +163,7 @@ CONFIGS = [
 PTCL_CONFIG_NAMES = [
     "baseline",
     "gmmu_prefetch",
+    "flex_entry",
     "ptcl_mode",
     "pasta",
     "coalescing",
@@ -345,6 +347,13 @@ def parse_args():
         default=DEFAULT_GMMU_PTE_LOOKUP_LATENCY,
         help="Fixed GMMU L2 TLB lookup latency per internal PTE lookup job, in cycles.",
     )
+    parser.add_argument(
+        "--gmmu-flex-promotion-threshold",
+        dest="gmmu_flex_promotion_threshold",
+        type=int,
+        default=DEFAULT_GMMU_FLEX_PROMOTION_THRESHOLD,
+        help="Minimum valid bitmap fill bits before Flex stores a PTCL-line entry.",
+    )
     return parser.parse_args()
 
 
@@ -449,12 +458,17 @@ def build_ptcl_config_map(args):
     high = args.adaptive_threshold_high
     if low > high:
         low, high = high, low
+    flex_flags = [
+        "-gmmu-flex-tlb",
+        f"-gmmu-flex-promotion-threshold={args.gmmu_flex_promotion_threshold}",
+    ]
 
     return {
         "baseline": VPN_MSHR_BASELINE_FLAGS,
         "gmmu_prefetch": VPN_MSHR_BASELINE_FLAGS + GMMU_PREFETCH_FLAGS,
+        "flex_entry": VPN_MSHR_BASELINE_FLAGS + flex_flags,
         "ptcl_mode": adaptive_flags(low, high),
-        "pasta": adaptive_flags(low, high) + GMMU_PREFETCH_FLAGS,
+        "pasta": adaptive_flags(low, high) + flex_flags + GMMU_PREFETCH_FLAGS,
         "coalescing": VPN_MSHR_BASELINE_FLAGS + COALESCING_FLAGS,
         "camsat": adaptive_flags(low, high) + COALESCING_FLAGS,
     }

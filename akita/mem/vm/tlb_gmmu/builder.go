@@ -30,6 +30,8 @@ type Builder struct {
 	ptclLowThres           int
 	initialPTCL            bool
 	perVPNMSHR             bool
+	flexTLBEnabled         bool
+	flexPromotionThreshold int
 	pteLookupLatencyCycles int
 	prefetchEnabled        bool
 	prefetchAdmission      int
@@ -51,12 +53,23 @@ func MakeBuilder() Builder {
 		ptclHighThres:          6,
 		ptclLowThres:           2,
 		initialPTCL:            false,
+		flexPromotionThreshold: 3,
 		pteLookupLatencyCycles: 32,
 		prefetchAdmission:      3,
 		prefetchMaxLearners:    4,
 		prefetchLookahead:      64,
 		prefetchMaxCandidates:  4,
 	}
+}
+
+func (b Builder) WithFlexTLB(enabled bool) Builder {
+	b.flexTLBEnabled = enabled
+	return b
+}
+
+func (b Builder) WithFlexPromotionThreshold(threshold int) Builder {
+	b.flexPromotionThreshold = threshold
+	return b
 }
 
 func (b Builder) WithSetSize(setSize int) Builder {
@@ -225,6 +238,8 @@ func (b Builder) Build(name string) *GMMUTLB {
 	tlb.pageTable = b.pageTable
 	tlb.IOMMUPort = b.ioMMUPort
 	tlb.vpnMSHRBaseline = b.perVPNMSHR
+	tlb.flexTLBEnabled = b.flexTLBEnabled
+	tlb.flexPromotionThreshold = b.flexPromotionThreshold
 	tlb.gmmuCacheTable = b.gmmuCacheTable
 	tlb.localPTWState = b.localPTWState
 	tlb.pteLookupLatencyCycles = b.pteLookupLatencyCycles

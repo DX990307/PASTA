@@ -58,6 +58,71 @@ func (tlb *GMMUTLB) PTELookupQueueStats() (maxInflight, maxWaiting int) {
 	return tlb.pteLookupMaxInflight, tlb.pteLookupMaxWaiting
 }
 
+func (tlb *GMMUTLB) resetFlexStats() {
+	tlb.flexLookupJobs = 0
+	tlb.flexLookupRequestedBits = 0
+	tlb.flexLookupHitBits = 0
+	tlb.flexLookupMissBits = 0
+	tlb.flexLookupSavedJobs = 0
+	tlb.flexPTEPackHits = 0
+	tlb.flexPTCLLineHits = 0
+	tlb.flexPartialPTCLHits = 0
+	tlb.flexFullPTCLHits = 0
+	tlb.flexPromotions = 0
+	tlb.flexDemotions = 0
+	tlb.flexInvalidatedPTEPackSlots = 0
+	tlb.flexEvictedValidSlotsForPTCL = 0
+}
+
+func (tlb *GMMUTLB) FlexTLBStats() (
+	enabled bool,
+	promotionThreshold int,
+	ptePackEntries int,
+	ptclLineEntries int,
+	lookupJobs int,
+	requestedBits int,
+	hitBits int,
+	missBits int,
+	savedJobs int,
+	ptePackHits int,
+	ptclLineHits int,
+	partialPTCLHits int,
+	fullPTCLHits int,
+	promotions int,
+	demotions int,
+	invalidatedPTEPackSlots int,
+	evictedValidSlotsForPTCL int,
+	flexSets int,
+	flexWays int,
+	flexPTESlots int,
+) {
+	if tlb.flex != nil {
+		ptePackEntries, ptclLineEntries = tlb.flex.occupancy()
+		flexSets, flexWays, flexPTESlots = tlb.flex.capacityStats()
+	}
+
+	return tlb.flexTLBEnabled,
+		tlb.flexPromotionThreshold,
+		ptePackEntries,
+		ptclLineEntries,
+		tlb.flexLookupJobs,
+		tlb.flexLookupRequestedBits,
+		tlb.flexLookupHitBits,
+		tlb.flexLookupMissBits,
+		tlb.flexLookupSavedJobs,
+		tlb.flexPTEPackHits,
+		tlb.flexPTCLLineHits,
+		tlb.flexPartialPTCLHits,
+		tlb.flexFullPTCLHits,
+		tlb.flexPromotions,
+		tlb.flexDemotions,
+		tlb.flexInvalidatedPTEPackSlots,
+		tlb.flexEvictedValidSlotsForPTCL,
+		flexSets,
+		flexWays,
+		flexPTESlots
+}
+
 // PrefetchStats reports whether the GMMU-side prefetcher is enabled and how
 // many candidates it generated, issued, or rejected.
 func (tlb *GMMUTLB) PrefetchStats() (
