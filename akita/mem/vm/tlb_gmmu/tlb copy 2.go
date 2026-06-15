@@ -1,6 +1,7 @@
 package tlb_gmmu
 
 import (
+	"fmt"
 	"log"
 	"reflect"
 
@@ -26,7 +27,8 @@ type GMMUTLB struct {
 	controlPort sim.Port
 	IOMMUPort   sim.Port
 
-	LowModule sim.Port
+	LowModule     sim.Port
+	localPTWState PTWStateProvider
 
 	numSets        int
 	numWays        int
@@ -36,34 +38,49 @@ type GMMUTLB struct {
 
 	Sets []internal.Set
 
-	mshr                   mshr
-	respondingMSHREntry    []*mshrEntry
-	log2Pagesize           uint64
-	vpnMSHRBaseline        bool
-	ptclMode               bool
-	coalescingCounter      int
-	ptclHighThreshold      int
-	ptclLowThreshold       int
-	switchToPTCLCount      int
-	switchToPTECount       int
-	downstreamReqCount     int
-	localReqCount          int
-	iommuReqCount          int
-	pteLookupLatencyCycles int
-	pteLookupWaitingQueue  []pteLookupJob
-	pteLookupInflight      []pteLookupJob
-	pteLookupGroups        map[pteLookupGroupKey]*pteLookupGroup
-	pteLookupReadyToIssue  []pteLookupGroupKey
-	ptclRepresentativeMiss map[pteLookupGroupKey][8]bool
-	pteLookupDelayCount    int
-	pteLookupDelayCycles   int
-	pteLookupMaxInflight   int
-	pteLookupMaxWaiting    int
-	prefetcher             *translationPrefetcher
-	inflightPrefetches     map[prefetchTargetKey]struct{}
-	prefetchReqStates      map[string]*prefetchReqState
-	prefetchOutcomeByBlock map[uint64]*prefetchOutcomeCounts
-	prefetchCompletedCount int
+	mshr                            mshr
+	respondingMSHREntry             []*mshrEntry
+	log2Pagesize                    uint64
+	vpnMSHRBaseline                 bool
+	ptclMode                        bool
+	coalescingCounter               int
+	ptclHighThreshold               int
+	ptclLowThreshold                int
+	switchToPTCLCount               int
+	switchToPTECount                int
+	ptclModeCompletions             int
+	pteModeCompletions              int
+	downstreamReqCount              int
+	localReqCount                   int
+	iommuReqCount                   int
+	pteLookupLatencyCycles          int
+	pteLookupWaitingQueue           []pteLookupJob
+	pteLookupInflight               []pteLookupJob
+	pteLookupGroups                 map[pteLookupGroupKey]*pteLookupGroup
+	pteLookupReadyToIssue           []pteLookupGroupKey
+	ptclRepresentativeMiss          map[pteLookupGroupKey][8]bool
+	pteLookupDelayCount             int
+	pteLookupDelayCycles            int
+	pteLookupMaxInflight            int
+	pteLookupMaxWaiting             int
+	prefetcher                      *translationPrefetcher
+	prefetchQueue                   []prefetchQueueEntry
+	queuedPrefetches                map[prefetchTargetKey]struct{}
+	inflightPrefetches              map[prefetchTargetKey]struct{}
+	prefetchReqStates               map[string]*prefetchReqState
+	prefetchOutcomeByBlock          map[uint64]*prefetchOutcomeCounts
+	prefetchedResident              map[prefetchedResidentKey]uint64
+	prefetchDisabledBlocks          map[uint64]struct{}
+	prefetchCompletedCount          int
+	prefetchUsefulCount             int
+	prefetchLostCount               int
+	prefetchLateDemandCount         int
+	prefetchLateDemandQueuedCount   int
+	prefetchLateDemandInflightCount int
+	prefetchRedundantFillCount      int
+	prefetchServedDemandCount       int
+	downstreamReqStates             map[string]downstreamReqState
+	demandTranslationStart          map[string]sim.VTimeInSec
 
 	isPaused       bool
 	DeviceID       uint64
@@ -111,6 +128,7 @@ func (tlb *GMMUTLB) reset() {
 	tlb.pteLookupMaxInflight = 0
 	tlb.pteLookupMaxWaiting = 0
 	tlb.resetPrefetchState()
+	tlb.resetDemandTranslationLatencyState()
 }
 
 // Tick defines how TLB update states at each cycle
@@ -136,6 +154,7 @@ func (tlb *GMMUTLB) Tick(now sim.VTimeInSec) bool {
 		for i := 0; i < tlb.numReqPerCycle; i++ {
 			madeProgress = tlb.advancePTELookups(now) || madeProgress
 		}
+		madeProgress = tlb.issueQueuedPrefetch(now) || madeProgress
 	}
 
 	return madeProgress
@@ -181,6 +200,8 @@ func (tlb *GMMUTLB) respondMSHREntry(now sim.VTimeInSec) bool {
 		return false
 	}
 
+	tlb.observeDemandTranslationComplete(now, req)
+
 	mshrEntry.Requests = mshrEntry.Requests[1:]
 	if len(mshrEntry.Requests) == 0 {
 		tlb.respondingMSHREntry = tlb.respondingMSHREntry[1:]
@@ -215,6 +236,7 @@ func (tlb *GMMUTLB) handleTranslationHit(
 	if !ok {
 		return false
 	}
+	tlb.observePrefetchUsefulHit(page)
 	tlb.topPort.Retrieve(now)
 
 	tlb.visit(setID, wayID)
@@ -244,6 +266,7 @@ func (tlb *GMMUTLB) handleTranslationMiss(
 
 	mshrEntry := tlb.mshr.Add(mshrReq.PID, mshrReq.VAddr, now, 0)
 	mshrEntry.Requests = append(mshrEntry.Requests, mshrReq)
+	tlb.recordDemandTranslationStart(now, mshrReq)
 	tlb.enqueuePTELookupJobsWithBitmap(now, mshrReq, mshrEntry, lookupBitmap)
 	tlb.maybeEnqueuePrefetches(now, mshrReq)
 
@@ -484,6 +507,7 @@ func (tlb *GMMUTLB) processReadyPTELookupJob(
 	wayID, page, found := set.Lookup(job.req.PID, job.vAddr)
 	if found && page.Valid {
 		tlb.visit(setID, wayID)
+		tlb.observePrefetchUsefulHit(page)
 		if mshrEntry := tlb.mshr.GetEntry(job.req.PID, job.vAddr); mshrEntry != nil {
 			tlb.mshr.UpdatePage(page.PID, page.VAddr, page)
 			tlb.mshr.UpdateResponseBitMap(page.PID, page.VAddr)
@@ -578,14 +602,28 @@ func (tlb *GMMUTLB) ptclRepresentativeBitmap(
 		return [8]bool{}
 	}
 
-	bitmap := [8]bool{}
-	bitmap[0] = true
-	bitmap = tlb.filterMappedBitmap(group.req.PID, group.key.baseVAddr, bitmap)
-	if !tlb.isBitmapZero(bitmap) {
-		return bitmap
+	mappedMisses := tlb.filterMappedBitmap(
+		group.req.PID,
+		group.key.baseVAddr,
+		group.missBitmap,
+	)
+	if tlb.isBitmapZero(mappedMisses) {
+		return [8]bool{}
 	}
 
-	return tlb.firstBitBitmap(group.missBitmap)
+	for i := 0; i < 8; i++ {
+		if !mappedMisses[i] {
+			continue
+		}
+
+		pageVAddr := group.key.baseVAddr + (uint64(i) << tlb.log2Pagesize)
+		page, found := tlb.pageTable.Find(group.req.PID, pageVAddr)
+		if found && page.DeviceID == tlb.DeviceID {
+			return tlb.singleBitBitmap(i)
+		}
+	}
+
+	return tlb.firstBitBitmap(mappedMisses)
 }
 
 func (tlb *GMMUTLB) registerPTCLRepresentativeMiss(
@@ -716,6 +754,7 @@ func (tlb *GMMUTLB) handleTLBFlush(now sim.VTimeInSec, req *FlushReq) bool {
 
 	tlb.mshr.Reset()
 	tlb.clearPTELookups()
+	tlb.resetDemandTranslationLatencyState()
 	tlb.isPaused = true
 	return true
 }
@@ -747,6 +786,7 @@ func (tlb *GMMUTLB) handleTLBRestart(now sim.VTimeInSec, req *RestartReq) bool {
 
 func (tlb *GMMUTLB) processTranslation(now sim.VTimeInSec, req *vm.TranslationReq) bool {
 	req.BitMap = tlb.normalizeBitmap(req)
+	tlb.recordDemandAgainstPendingPrefetch(req)
 
 	mshrEntry := tlb.mshr.GetEntry(req.PID, req.VAddr)
 
@@ -763,6 +803,7 @@ func (tlb *GMMUTLB) processRsp(
 	bottom bool,
 ) bool {
 	page := rsp.Page
+	tlb.observeDownstreamRsp(now, rsp)
 
 	if rsp.IsPrefetch {
 		if !tlb.handlePrefetchRsp(now, rsp) {
@@ -823,9 +864,17 @@ func (tlb *GMMUTLB) completePTCLRepresentativeRsp(
 		tlb.singlePageBitmap(representativePage.VAddr),
 	)
 
-	var mshrEntry *mshrEntry
+	mshrEntry := tlb.mshr.GetEntry(representativePage.PID, key.baseVAddr)
+	if mshrEntry == nil {
+		return true
+	}
+
+	demandBitmap := tlb.intersectBitmaps(
+		representedBitmap,
+		mshrEntry.RealAddrBitmap,
+	)
 	for i := 0; i < 8; i++ {
-		if !representedBitmap[i] {
+		if !demandBitmap[i] {
 			continue
 		}
 
@@ -867,7 +916,7 @@ func (tlb *GMMUTLB) scheduleReadyMSHREntry(
 
 	tlb.respondingMSHREntry = append(tlb.respondingMSHREntry, entry)
 	if updateMode {
-		tlb.updateModeByMSHREntry(entry)
+		tlb.updateModeByMSHREntry(now, entry)
 	}
 	tlb.mshr.Remove(entry.pid, entry.baseVAddr)
 	return true
@@ -876,12 +925,13 @@ func (tlb *GMMUTLB) scheduleReadyMSHREntry(
 func (tlb *GMMUTLB) installPage(page vm.Page) bool {
 	setID := tlb.vAddrToSetID(page.VAddr)
 	set := tlb.Sets[setID]
-	wayID, ok, _ := tlb.Sets[setID].Evict()
+	wayID, ok, evictedPage := tlb.Sets[setID].Evict()
 
 	if !ok {
 		return false
 	}
 
+	tlb.recordPrefetchEviction(evictedPage)
 	set.Update(wayID, page)
 	set.Visit(wayID)
 	return true
@@ -936,6 +986,7 @@ func (tlb *GMMUTLB) sendDownstream(
 			return nil, false
 		}
 
+		tlb.recordDownstreamIssue(now, translatedReq, true)
 		tlb.downstreamReqCount++
 		tlb.iommuReqCount++
 
@@ -953,8 +1004,52 @@ func (tlb *GMMUTLB) sendDownstream(
 		return nil, false
 	}
 
+	tlb.recordDownstreamIssue(now, translatedReq, false)
 	tlb.downstreamReqCount++
 	tlb.localReqCount++
+
+	return translatedReq, true
+}
+
+func (tlb *GMMUTLB) sendDownstreamToIOMMU(
+	now sim.VTimeInSec,
+	req *vm.TranslationReq,
+	bitmap [8]bool,
+) (*vm.TranslationReq, bool) {
+	if tlb.isBitmapZero(bitmap) {
+		return nil, false
+	}
+	if tlb.IOMMUPort == nil {
+		return nil, false
+	}
+
+	targetVAddr := tlb.bitmapVAddr(req.VAddr, bitmap)
+	if _, found := tlb.findFirstMappedPageInBitmap(req.PID, req.VAddr, bitmap); !found {
+		panic("page not found")
+	}
+
+	translatedReq := vm.TranslationReqBuilder{}.
+		WithSendTime(now).
+		WithSrc(tlb.OutsidePort).
+		WithDst(tlb.IOMMUPort).
+		WithPID(req.PID).
+		WithVAddr(targetVAddr).
+		WithDeviceID(tlb.DeviceID).
+		WithTaskID(req.TaskID).
+		WithOriginPort(req.OriginPort).
+		WithBitMap(bitmap).
+		WithPrefetch(req.IsPrefetch).
+		Build()
+	translatedReq.StartGPUID = req.StartGPUID
+
+	err := tlb.IOMMUPort.Send(translatedReq)
+	if err != nil {
+		return nil, false
+	}
+
+	tlb.recordDownstreamIssue(now, translatedReq, true)
+	tlb.downstreamReqCount++
+	tlb.iommuReqCount++
 
 	return translatedReq, true
 }
@@ -1071,9 +1166,16 @@ func (tlb *GMMUTLB) firstBitBitmap(bitmap [8]bool) [8]bool {
 	result := [8]bool{}
 	for i := 0; i < 8; i++ {
 		if bitmap[i] {
-			result[i] = true
-			return result
+			return tlb.singleBitBitmap(i)
 		}
+	}
+	return result
+}
+
+func (tlb *GMMUTLB) singleBitBitmap(bit int) [8]bool {
+	result := [8]bool{}
+	if bit >= 0 && bit < 8 {
+		result[bit] = true
 	}
 	return result
 }
@@ -1122,34 +1224,127 @@ func (tlb *GMMUTLB) getBaseVaddr(vAddr uint64) uint64 {
 	return baseVPN << tlb.log2Pagesize
 }
 
-func (tlb *GMMUTLB) adaptiveDelta(entry *mshrEntry) int {
-	ones := tlb.bitmapCount(entry.RealAddrBitmap)
-	if ones <= 1 {
-		return -1
+func (tlb *GMMUTLB) ptclActivationDemandBits(entry *mshrEntry) (scoreBits, totalBits int) {
+	totalBits = tlb.bitmapCount(entry.RealAddrBitmap)
+	if totalBits <= 1 || tlb.pteLookupLatencyCycles <= 0 {
+		return totalBits, totalBits
 	}
 
-	return 1
+	var first sim.VTimeInSec
+	firstSet := false
+	for i := 0; i < 8; i++ {
+		if !entry.RealAddrBitmap[i] {
+			continue
+		}
+
+		arrival := entry.RealAddrTime[i]
+		if !firstSet || arrival < first {
+			first = arrival
+			firstSet = true
+		}
+	}
+
+	if !firstSet {
+		return 0, totalBits
+	}
+
+	windowEnd := tlb.Freq.NCyclesLater(tlb.pteLookupLatencyCycles, first)
+	for i := 0; i < 8; i++ {
+		if entry.RealAddrBitmap[i] && entry.RealAddrTime[i] <= windowEnd {
+			scoreBits++
+		}
+	}
+
+	return scoreBits, totalBits
+}
+
+func (tlb *GMMUTLB) adaptiveDelta(scoreBits int) int {
+	if scoreBits <= 1 {
+		return -7
+	}
+
+	if scoreBits >= 7 {
+		return 1
+	}
+
+	return -2
 }
 
 func (tlb *GMMUTLB) recordAdaptiveDelta(delta int) {
 	tlb.coalescingCounter += delta
+
+	minCounter, maxCounter := tlb.coalescingCounterBounds()
+	if tlb.coalescingCounter < minCounter {
+		tlb.coalescingCounter = minCounter
+	}
+	if tlb.coalescingCounter > maxCounter {
+		tlb.coalescingCounter = maxCounter
+	}
 }
 
-func (tlb *GMMUTLB) updateModeByMSHREntry(entry *mshrEntry) {
+func (tlb *GMMUTLB) coalescingCounterBounds() (int, int) {
+	maxCounter := tlb.ptclHighThreshold
+	if maxCounter < 0 {
+		maxCounter = 0
+	}
+
+	return 0, maxCounter
+}
+
+func (tlb *GMMUTLB) updateModeByMSHREntry(now sim.VTimeInSec, entry *mshrEntry) {
 	if tlb.vpnMSHRBaseline {
 		return
 	}
 
-	tlb.recordAdaptiveDelta(tlb.adaptiveDelta(entry))
+	wasPTCLMode := tlb.ptclMode
+	if wasPTCLMode {
+		tlb.ptclModeCompletions++
+	} else {
+		tlb.pteModeCompletions++
+	}
 
-	if !tlb.ptclMode && tlb.coalescingCounter > tlb.ptclHighThreshold {
+	counterBefore := tlb.coalescingCounter
+	scoreBits, totalBits := tlb.ptclActivationDemandBits(entry)
+	delta := tlb.adaptiveDelta(scoreBits)
+	tlb.recordAdaptiveDelta(delta)
+
+	if !wasPTCLMode && tlb.coalescingCounter >= tlb.ptclHighThreshold {
 		tlb.ptclMode = true
 		tlb.switchToPTCLCount++
+		tlb.printPTCLModeEvent(
+			now, "switch-to-ptcl", counterBefore, delta, scoreBits, totalBits,
+		)
 		return
 	}
 
-	if tlb.ptclMode && tlb.coalescingCounter < tlb.ptclLowThreshold {
+	if wasPTCLMode && tlb.coalescingCounter <= tlb.ptclLowThreshold {
 		tlb.ptclMode = false
 		tlb.switchToPTECount++
+		tlb.printPTCLModeEvent(
+			now, "switch-to-pte", counterBefore, delta, scoreBits, totalBits,
+		)
+		return
 	}
+
+	if wasPTCLMode {
+		tlb.printPTCLModeEvent(
+			now, "monitor-ptcl", counterBefore, delta, scoreBits, totalBits,
+		)
+	}
+}
+
+func (tlb *GMMUTLB) printPTCLModeEvent(
+	now sim.VTimeInSec,
+	action string,
+	counterBefore int,
+	delta int,
+	scoreBits int,
+	totalBits int,
+) {
+	fmt.Printf("[GMMU-PTCL][mode] cycle=%d component=%s action=%s counter_before=%d counter_after=%d delta=%d demand_bits=%d total_bits=%d low=%d high=%d pte_completions=%d ptcl_completions=%d switch_to_ptcl=%d switch_to_pte=%d\n",
+		uint64(now*1e9), tlb.Name(), action, counterBefore,
+		tlb.coalescingCounter, delta, scoreBits, totalBits,
+		tlb.ptclLowThreshold, tlb.ptclHighThreshold,
+		tlb.pteModeCompletions, tlb.ptclModeCompletions,
+		tlb.switchToPTCLCount, tlb.switchToPTECount)
 }

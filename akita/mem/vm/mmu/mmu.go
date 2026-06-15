@@ -74,6 +74,18 @@ func (mmu *MMU) Tick(now sim.VTimeInSec) bool {
 	return madeProgress
 }
 
+func (mmu *MMU) HasFreePTW() bool {
+	return len(mmu.walkingTranslations) < mmu.maxRequestsInFlight
+}
+
+func (mmu *MMU) PTWInflight() int {
+	return len(mmu.walkingTranslations)
+}
+
+func (mmu *MMU) PTWCapacity() int {
+	return mmu.maxRequestsInFlight
+}
+
 func (mmu *MMU) walkPageTable(now sim.VTimeInSec) bool {
 	madeProgress := false
 	for i := 0; i < len(mmu.walkingTranslations); i++ {

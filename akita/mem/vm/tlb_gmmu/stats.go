@@ -22,6 +22,12 @@ func (tlb *GMMUTLB) ModeSwitchCounts() (toPTCL, toPTE int) {
 	return tlb.switchToPTCLCount, tlb.switchToPTECount
 }
 
+// ModeCompletionCounts returns how many completed MSHR entries were accounted
+// while the adaptive L2 TLB was in PTE or PTCL mode.
+func (tlb *GMMUTLB) ModeCompletionCounts() (pteMode, ptclMode int) {
+	return tlb.pteModeCompletions, tlb.ptclModeCompletions
+}
+
 // VPNMSHRBaselineEnabled reports whether the GMMU L2 TLB is using exact-VPN
 // MSHR entries instead of PTCL-granularity entries.
 func (tlb *GMMUTLB) VPNMSHRBaselineEnabled() bool {
@@ -63,25 +69,27 @@ func (tlb *GMMUTLB) PrefetchStats() (
 	rejectedByPrefix int,
 	rejectedByDuplicate int,
 	rejectedByInvalid int,
+	rejectedByIOMMUFallbackGate int,
 	noClearPatternSkips int,
 	admitted int,
 	promoted int,
 ) {
 	if tlb.prefetcher == nil {
-		return false, false, 0, 0, 0, 0, 0, 0, 0, 0, 0
+		return false, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 	}
 
 	return tlb.prefetcher.enabled,
-		tlb.prefetcher.promoteDemandToPTCL,
+		false,
 		tlb.prefetcher.generatedCandidates,
 		tlb.prefetcher.enqueuedCandidates,
 		tlb.prefetcher.droppedCandidates,
 		tlb.prefetcher.rejectedByPrefix,
 		tlb.prefetcher.rejectedByDuplicate,
 		tlb.prefetcher.rejectedByInvalid,
+		tlb.prefetcher.rejectedByIOMMUFallbackGate,
 		tlb.prefetcher.noClearPatternSkips,
 		tlb.prefetcher.admittedLearnersCount,
-		tlb.prefetcher.promotedDemandRequests
+		0
 }
 
 // PrefetchOutcomeStats reports the observed completion count for GMMU-side
@@ -92,5 +100,60 @@ func (tlb *GMMUTLB) PrefetchOutcomeStats() (
 	late int,
 	lostBeforeUse int,
 ) {
-	return tlb.prefetchCompletedCount, 0, 0, 0
+	return tlb.prefetchCompletedCount,
+		tlb.prefetchUsefulCount,
+		tlb.prefetchLateDemandCount,
+		tlb.prefetchLostCount
+}
+
+func (tlb *GMMUTLB) PrefetchDiagnosisStats() (
+	lateDemandQueued int,
+	lateDemandInflight int,
+	redundantFill int,
+	servedOutstandingDemand int,
+	unusedResident int,
+) {
+	return tlb.prefetchLateDemandQueuedCount,
+		tlb.prefetchLateDemandInflightCount,
+		tlb.prefetchRedundantFillCount,
+		tlb.prefetchServedDemandCount,
+		len(tlb.prefetchedResident)
+}
+
+func (tlb *GMMUTLB) PrefetchAdaptiveStats() (
+	demandLatencyCycles int,
+	localPrefetchLatencyCycles int,
+	remotePrefetchLatencyCycles int,
+	currentLookahead int,
+	queueLen int,
+	issued int,
+	blockedByNoFreePTW int,
+	iommuFallbacks int,
+) {
+	if tlb.prefetcher == nil {
+		return 0, 0, 0, 0, 0, 0, 0, 0
+	}
+
+	return tlb.prefetcher.demandLatencyCycles,
+		tlb.prefetcher.localPrefetchLatencyCycles,
+		tlb.prefetcher.remotePrefetchLatencyCycles,
+		tlb.prefetcher.currentLookahead,
+		len(tlb.prefetchQueue),
+		tlb.prefetcher.issuedCandidates,
+		tlb.prefetcher.blockedByNoFreePTW,
+		tlb.prefetcher.iommuFallbackCandidates
+}
+
+func (tlb *GMMUTLB) PrefetchFeedbackStats() (
+	disabledBlocks int,
+	rejectedByFeedback int,
+	disabledByFeedback bool,
+) {
+	if tlb.prefetcher == nil {
+		return 0, 0, false
+	}
+
+	return len(tlb.prefetchDisabledBlocks),
+		tlb.prefetcher.rejectedByFeedback,
+		false
 }

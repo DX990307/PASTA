@@ -327,7 +327,7 @@ func (b *shaderArrayBuilder) buildL1VTLBs(sa *shaderArray) {
 	builder := tlb.MakeBuilder().
 		WithEngine(b.engine).
 		WithFreq(b.freq).
-		WithNumMSHREntry(16).
+		WithNumMSHREntry(4).
 		WithNumSets(1).
 		WithNumWays(32).
 		WithNumReqPerCycle(4)

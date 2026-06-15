@@ -36,6 +36,7 @@ type Builder struct {
 	prefetchMaxLearners    int
 	prefetchLookahead      int
 	prefetchMaxCandidates  int
+	localPTWState          PTWStateProvider
 }
 
 // MakeBuilder returns a Builder
@@ -49,11 +50,11 @@ func MakeBuilder() Builder {
 		numMSHREntry:           4,
 		ptclHighThres:          6,
 		ptclLowThres:           2,
-		initialPTCL:            true,
+		initialPTCL:            false,
 		pteLookupLatencyCycles: 32,
-		prefetchAdmission:      6,
+		prefetchAdmission:      3,
 		prefetchMaxLearners:    4,
-		prefetchLookahead:      2,
+		prefetchLookahead:      64,
 		prefetchMaxCandidates:  4,
 	}
 }
@@ -106,6 +107,11 @@ func (b Builder) WithPrefetchLookahead(lookahead int) Builder {
 
 func (b Builder) WithPrefetchMaxCandidatesPerReq(limit int) Builder {
 	b.prefetchMaxCandidates = limit
+	return b
+}
+
+func (b Builder) WithLocalPTWStateProvider(provider PTWStateProvider) Builder {
+	b.localPTWState = provider
 	return b
 }
 
@@ -220,10 +226,10 @@ func (b Builder) Build(name string) *GMMUTLB {
 	tlb.IOMMUPort = b.ioMMUPort
 	tlb.vpnMSHRBaseline = b.perVPNMSHR
 	tlb.gmmuCacheTable = b.gmmuCacheTable
+	tlb.localPTWState = b.localPTWState
 	tlb.pteLookupLatencyCycles = b.pteLookupLatencyCycles
 	tlb.prefetcher = newTranslationPrefetcher(
 		b.prefetchEnabled,
-		false,
 		b.prefetchAdmission,
 		b.prefetchMaxLearners,
 		b.prefetchLookahead,

@@ -49,6 +49,18 @@ type GMMU struct {
 	isPrediction bool
 }
 
+func (gmmu *GMMU) HasFreePTW() bool {
+	return len(gmmu.walkingTranslations) < gmmu.maxRequestsInFlight
+}
+
+func (gmmu *GMMU) PTWInflight() int {
+	return len(gmmu.walkingTranslations)
+}
+
+func (gmmu *GMMU) PTWCapacity() int {
+	return gmmu.maxRequestsInFlight
+}
+
 // Tick defines how the gmmu update state each cycle
 func (gmmu *GMMU) Tick(now sim.VTimeInSec) bool {
 	madeProgress := false

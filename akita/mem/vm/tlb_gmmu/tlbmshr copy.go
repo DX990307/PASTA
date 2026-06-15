@@ -18,6 +18,7 @@ type mshrEntry struct {
 	reqToBottom    *vm.TranslationReq
 	Pages          [8]vm.Page
 	RealAddrBitmap [8]bool
+	RealAddrTime   [8]sim.VTimeInSec
 	// startPage     [8]int
 }
 
@@ -99,6 +100,7 @@ func (m *mshrImpl) Add(pid vm.PID, vAddr uint64, now sim.VTimeInSec, predictRadi
 
 	entry.UplevelBitMap = bitMap
 	entry.RealAddrBitmap = RealAddrBitmap
+	entry.RealAddrTime[VPN%8] = now
 
 	m.entries = append(m.entries, entry)
 	return entry
@@ -198,9 +200,13 @@ func (m *mshrImpl) UpdateUpLevelBitMap(pid vm.PID, vAddr uint64, now sim.VTimeIn
 	bitmap := entry.UplevelBitMap
 	realAddrBitmap := entry.RealAddrBitmap
 	VPN := vAddr >> m.log2PageSize
+	bit := VPN % 8
 
-	bitmap[VPN%8] = true
-	realAddrBitmap[VPN%8] = true
+	bitmap[bit] = true
+	if !realAddrBitmap[bit] {
+		entry.RealAddrTime[bit] = now
+	}
+	realAddrBitmap[bit] = true
 
 	entry.UplevelBitMap = bitmap
 	entry.RealAddrBitmap = realAddrBitmap

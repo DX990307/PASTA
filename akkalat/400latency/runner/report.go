@@ -293,6 +293,8 @@ func (r *Runner) reportGMMUCacheHitRate() {
 	for _, tracer := range r.gmmuCacheHitRateTracers {
 		low, high := tracer.gmmuCache.PTCLThresholds()
 		toPTCL, toPTE := tracer.gmmuCache.ModeSwitchCounts()
+		pteModeCompletions, ptclModeCompletions :=
+			tracer.gmmuCache.ModeCompletionCounts()
 		totalDownstream, localDownstream, iommuDownstream :=
 			tracer.gmmuCache.DownstreamRequestCounts()
 		pteLookupDelayCount, pteLookupDelayCycles :=
@@ -300,10 +302,20 @@ func (r *Runner) reportGMMUCacheHitRate() {
 		pteLookupMaxInflight, pteLookupMaxWaiting :=
 			tracer.gmmuCache.PTELookupQueueStats()
 		prefetchEnabled, _, generated, enqueued, dropped, rejectedByPrefix,
-			rejectedByDuplicate, rejectedByInvalid, noClearPatternSkips, admitted, _ :=
+			rejectedByDuplicate, rejectedByInvalid, rejectedByIOMMUFallbackGate,
+			noClearPatternSkips, admitted, _ :=
 			tracer.gmmuCache.PrefetchStats()
 		prefetchCompleted, prefetchUseful, prefetchLate, prefetchLost :=
 			tracer.gmmuCache.PrefetchOutcomeStats()
+		prefetchLateQueued, prefetchLateInflight, prefetchRedundantFill,
+			prefetchServedOutstandingDemand, prefetchUnusedResident :=
+			tracer.gmmuCache.PrefetchDiagnosisStats()
+		prefetchDemandLatency, prefetchLocalLatency, prefetchRemoteLatency,
+			prefetchLookahead, prefetchQueueLen, prefetchIssued,
+			prefetchBlockedByPTW, prefetchIOMMUFallbacks :=
+			tracer.gmmuCache.PrefetchAdaptiveStats()
+		prefetchDisabledBlocks, prefetchRejectedByFeedback, prefetchDisabledByFeedback :=
+			tracer.gmmuCache.PrefetchFeedbackStats()
 		ptclModeEnabled := 0.0
 		if tracer.gmmuCache.PTCLModeEnabled() {
 			ptclModeEnabled = 1.0
@@ -311,6 +323,10 @@ func (r *Runner) reportGMMUCacheHitRate() {
 		prefetchEnabledFloat := 0.0
 		if prefetchEnabled {
 			prefetchEnabledFloat = 1.0
+		}
+		prefetchDisabledByFeedbackFloat := 0.0
+		if prefetchDisabledByFeedback {
+			prefetchDisabledByFeedbackFloat = 1.0
 		}
 		vpnMSHRBaselineEnabled := 0.0
 		if tracer.gmmuCache.VPNMSHRBaselineEnabled() {
@@ -337,6 +353,16 @@ func (r *Runner) reportGMMUCacheHitRate() {
 			tracer.gmmuCache.Name(), "ptcl_switch_to_ptcl", float64(toPTCL))
 		r.metricsCollector.Collect(
 			tracer.gmmuCache.Name(), "ptcl_switch_to_pte", float64(toPTE))
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"pte_mode_completions",
+			float64(pteModeCompletions),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_mode_completions",
+			float64(ptclModeCompletions),
+		)
 		r.metricsCollector.Collect(
 			tracer.gmmuCache.Name(),
 			"downstream_req_count",
@@ -411,6 +437,26 @@ func (r *Runner) reportGMMUCacheHitRate() {
 		)
 		r.metricsCollector.Collect(
 			tracer.gmmuCache.Name(),
+			"prefetch_rejected_by_iommu_fallback_gate",
+			float64(rejectedByIOMMUFallbackGate),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_rejected_by_feedback",
+			float64(prefetchRejectedByFeedback),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_disabled_blocks",
+			float64(prefetchDisabledBlocks),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_disabled_by_feedback",
+			prefetchDisabledByFeedbackFloat,
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
 			"prefetch_admitted_learners",
 			float64(admitted),
 		)
@@ -436,8 +482,73 @@ func (r *Runner) reportGMMUCacheHitRate() {
 		)
 		r.metricsCollector.Collect(
 			tracer.gmmuCache.Name(),
+			"prefetch_late_demand_queued",
+			float64(prefetchLateQueued),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_late_demand_inflight",
+			float64(prefetchLateInflight),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_redundant_fills",
+			float64(prefetchRedundantFill),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_served_outstanding_demands",
+			float64(prefetchServedOutstandingDemand),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_unused_resident_entries",
+			float64(prefetchUnusedResident),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
 			"prefetch_lost_before_use",
 			float64(prefetchLost),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_demand_translation_latency_cycles",
+			float64(prefetchDemandLatency),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_local_latency_cycles",
+			float64(prefetchLocalLatency),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_remote_latency_cycles",
+			float64(prefetchRemoteLatency),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_adaptive_lookahead",
+			float64(prefetchLookahead),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_queue_len",
+			float64(prefetchQueueLen),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_issued_candidates",
+			float64(prefetchIssued),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_blocked_by_no_free_ptw",
+			float64(prefetchBlockedByPTW),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"prefetch_iommu_fallback_candidates",
+			float64(prefetchIOMMUFallbacks),
 		)
 
 		hit := tracer.tracer.GetStepCount("hit")

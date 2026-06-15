@@ -119,6 +119,15 @@ DEFAULT_MMUTLB_PTCL_RETURN_LATENCY = 80
 DEFAULT_MMUTLB_LOOKUP_LATENCY = 80
 DEFAULT_GMMU_PTE_LOOKUP_LATENCY = 32
 DEFAULT_TIMEOUT_MINUTES = 0.0
+DEFAULT_PHOTON_SAMPLED_WARMUP = 512
+DEFAULT_PHOTON_SAMPLED_GRANULARITY = 512
+
+GLOBAL_PHOTON_FLAGS = [
+    "-sampled",
+    "-branch-sampled",
+    "-kernel-sampled",
+    "-loop-sampled",
+]
 
 COALESCING_FLAGS = [
     "-mmu-walk-coalescing",
@@ -262,6 +271,14 @@ def parse_args():
         "--photon-debug",
         action="store_true",
         help="Add -photon-debug to sampled WSG-style configs.",
+    )
+    parser.add_argument(
+        "--photon",
+        action="store_true",
+        help=(
+            "Append the script-level Photon sampled flags to every selected "
+            "ablation config."
+        ),
     )
     parser.add_argument(
         "--photon-verbose",
@@ -580,6 +597,40 @@ def strip_disable_server_flags(flags):
     ]
 
 
+def has_flag_with_prefix(flags, prefix):
+    return any(flag.startswith(prefix) for flag in flags)
+
+
+def append_unique_flag(flags, flag):
+    if flag not in flags:
+        flags.append(flag)
+
+
+def add_global_photon_flags(args, flags):
+    if not args.photon:
+        return flags
+
+    photon_flags = flags[:]
+    for flag in GLOBAL_PHOTON_FLAGS:
+        append_unique_flag(photon_flags, flag)
+
+    if args.photon_debug or args.photon_verbose:
+        append_unique_flag(photon_flags, "-photon-debug")
+    if args.photon_verbose:
+        append_unique_flag(photon_flags, "-photon-debug-verbose")
+
+    if not has_flag_with_prefix(photon_flags, "-sampled-warmup="):
+        photon_flags.append(
+            f"-sampled-warmup={DEFAULT_PHOTON_SAMPLED_WARMUP}"
+        )
+    if not has_flag_with_prefix(photon_flags, "-sampled-granularity="):
+        photon_flags.append(
+            f"-sampled-granularity={DEFAULT_PHOTON_SAMPLED_GRANULARITY}"
+        )
+
+    return photon_flags
+
+
 def default_benchmark_flags(args):
     if args.max_wg is not None:
         if args.max_wg <= 0:
@@ -594,16 +645,18 @@ def make_exps(args, ablation_configs):
     for target in TARGETS:
         for benchmark in get_selected_benchmarks(args, target):
             for config_name, config_flags in ablation_configs:
+                flags = (
+                    default_benchmark_flags(args)
+                    + extra_flags
+                    + strip_disable_server_flags(config_flags)
+                )
+                flags = add_global_photon_flags(args, flags)
                 exps.append(
                     {
                         "target": target,
                         "benchmark": benchmark,
                         "config_name": config_name,
-                        "flags": (
-                            default_benchmark_flags(args)
-                            + extra_flags
-                            + strip_disable_server_flags(config_flags)
-                        ),
+                        "flags": flags,
                     }
                 )
     return exps
@@ -1021,6 +1074,12 @@ def main():
         raise ValueError("--memory-scan-interval-minutes must be greater than 0")
 
     print(f"Using common flags: {shlex.join(common_flags)}")
+    if args.photon:
+        photon_defaults = GLOBAL_PHOTON_FLAGS + [
+            f"-sampled-warmup={DEFAULT_PHOTON_SAMPLED_WARMUP}",
+            f"-sampled-granularity={DEFAULT_PHOTON_SAMPLED_GRANULARITY}",
+        ]
+        print(f"Global Photon flags: {shlex.join(photon_defaults)}")
     if args.timeout_minutes > 0:
         print(f"Experiment timeout: {args.timeout_minutes} minutes")
     print(f"Queued {len(exps)} experiments")
