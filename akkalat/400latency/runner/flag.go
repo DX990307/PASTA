@@ -1,6 +1,10 @@
 package runner
 
-import "flag"
+import (
+	"flag"
+
+	"github.com/sarchlab/akita/v3/mem/vm/translationtrace"
+)
 
 var timingFlag = flag.Bool("timing", false, "Run detailed timing simulation.")
 var maxInstCount = flag.Uint64("max-inst", 0,
@@ -37,6 +41,12 @@ var useUnifiedMemoryFlag = flag.Bool("use-unified-memory", false,
 var reportAll = flag.Bool("report-all", false, "Report all metrics to .csv file.")
 var filenameFlag = flag.String("metric-file-name", "metrics",
 	"Modify the name of the output csv file.")
+var translationTraceFlag = flag.Bool("translation-trace", false,
+	"Collect translation pressure time-series and request-stage breakdown CSVs.")
+var translationTraceWindowCycles = flag.Uint64("translation-trace-window-cycles", 10000,
+	"Window size in cycles for translation pressure time-series CSV.")
+var translationTraceFile = flag.String("translation-trace-file", "",
+	"Output file prefix for translation trace CSVs. Defaults to -metric-file-name.")
 var magicMemoryCopy = flag.Bool("magic-memory-copy", false,
 	"Copy data from CPU directly to global memory")
 var switchLatencyFlag = flag.Int("switch-latency", 20,
@@ -60,9 +70,9 @@ var visTracerDBFileName = flag.String("trace-vis-db-file", "",
 		"If not specified, a random file name will be used. "+
 		"This flag does not work with Mysql db. When MySQL is used, "+
 		"the database name is always randomly generated.")
-var gmmuPTCLThresholdLow = flag.Int("gmmu-ptcl-threshold-low", 2,
+var gmmuPTCLThresholdLow = flag.Int("gmmu-ptcl-threshold-low", 4,
 	"The low threshold of the coalescing score for switching the GMMU L2 TLB back to PTE mode.")
-var gmmuPTCLThresholdHigh = flag.Int("gmmu-ptcl-threshold-high", 6,
+var gmmuPTCLThresholdHigh = flag.Int("gmmu-ptcl-threshold-high", 16,
 	"The high threshold of the coalescing score for switching the GMMU L2 TLB into PTCL mode.")
 var gmmuInitialPTCLMode = flag.Bool("gmmu-initial-ptcl-mode", false,
 	"Whether the GMMU L2 TLB starts in PTCL coalescing mode.")
@@ -70,6 +80,12 @@ var gmmuVPNMSHRBaseline = flag.Bool("gmmu-vpn-mshr-baseline", false,
 	"Use a per-VPN GMMU L2 TLB MSHR baseline instead of PTCL-granularity MSHRs.")
 var gmmuPTELookupLatency = flag.Int("gmmu-pte-lookup-latency", 32,
 	"Fixed GMMU L2 TLB lookup latency per internal PTE lookup job, in cycles. PTCL mode can issue multiple lookup jobs in parallel.")
+var gmmuPTCLSerialLookup = flag.Bool("gmmu-ptcl-serial-lookup", false,
+	"Model non-flex GMMU PTCL lookup as one serial bitmap lookup whose latency is requested bits times gmmu-pte-lookup-latency.")
+var gmmuFlexTLB = flag.Bool("gmmu-flex-tlb", false,
+	"Enable the Flex-PTCL/PTE entry format in the GMMU L2 TLB.")
+var gmmuFlexPromotionThreshold = flag.Int("gmmu-flex-promotion-threshold", 3,
+	"The minimum valid response bits required before Flex stores a PTCL-line entry.")
 var gmmuPrefetch = flag.Bool("gmmu-prefetch", false,
 	"Enable the BO-aware PTCL translation prefetcher in the GMMU L2 TLB.")
 var gmmuPrefetchAdmission = flag.Int("gmmu-prefetch-admission", 3,
@@ -88,6 +104,8 @@ var mmutlbPrefetch = flag.Bool("mmutlb-prefetch", false,
 	"Enable the BO-aware PTCL translation prefetcher in the MMUTLB.")
 var mmutlbDemandPTEOnly = flag.Bool("mmutlb-demand-pte-only", false,
 	"Force demand requests in the MMUTLB/IOTLB to issue and return only the requested PTE, while allowing PTCL-level prefetching to remain enabled.")
+var mmutlbFlexTLB = flag.Bool("mmutlb-flex-tlb", false,
+	"Enable PTCL set-as-line lookup/fill in the MMUTLB/IOTLB when PTCL-granularity MSHR coalescing is active.")
 var mmutlbPTCLReturnLatency = flag.Int("mmutlb-ptcl-return-latency", 80,
 	"Fixed MMUTLB/IOTLB lookup latency per requested PTE (per bitmap bit), in cycles, applied before each buffered translation request is looked up.")
 var mmutlbPrefetchDemandPTCLReturn = flag.Bool("mmutlb-prefetch-demand-ptcl-return", false,
@@ -127,6 +145,20 @@ func (r *Runner) ParseFlag() *Runner {
 
 	if *useUnifiedMemoryFlag {
 		r.UseUnifiedMemory = true
+	}
+
+	if *translationTraceFlag {
+		prefix := *translationTraceFile
+		if prefix == "" {
+			prefix = *filenameFlag
+		}
+		translationtrace.Configure(
+			true,
+			prefix,
+			*translationTraceWindowCycles,
+		)
+	} else {
+		translationtrace.Configure(false, "", 0)
 	}
 
 	if *instCountReportFlag {

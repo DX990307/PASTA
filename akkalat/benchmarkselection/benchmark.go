@@ -45,35 +45,40 @@ import (
 	"github.com/sarchlab/mgpusim/v3/driver"
 )
 
+const (
+	oneGiB = 1 << 30
+	oneMiB = 1 << 20
+)
+
 func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 	var benchmark benchmarks.Benchmark
 	switch name {
 	case "aes":
 		aes := aes.NewBenchmark(driver)
-		aes.Length = 1073741824
+		aes.Length = oneGiB
 		benchmark = aes
 	case "atax":
 		atax := atax.NewBenchmark(driver)
-		atax.NX = 16384
-		atax.NY = 16384
+		atax.NX = 4096
+		atax.NY = 4096
 		benchmark = atax
 	case "bicg":
 		bicg := bicg.NewBenchmark(driver)
-		bicg.NX = 16384
-		bicg.NY = 16384
+		bicg.NX = 4096 * 4
+		bicg.NY = 4096 * 4
 		benchmark = bicg
 	case "bitonicsort":
 		bitonicsort := bitonicsort.NewBenchmark(driver)
-		bitonicsort.Length = 268435456
+		bitonicsort.Length = oneGiB / 4
 		benchmark = bitonicsort
 	case "bert":
 		benchmark = bert.NewBenchmark(driver)
 	case "conv2d":
 		conv2d := conv2d.NewBenchmark(driver)
-		conv2d.N = 1
+		conv2d.N = 8 / 8
 		conv2d.C = 3
-		conv2d.H = 1052
-		conv2d.W = 1052
+		conv2d.H = 300 * 8
+		conv2d.W = 300 * 8
 		conv2d.KernelChannel = 3
 		conv2d.KernelHeight = 4
 		conv2d.KernelWidth = 4
@@ -84,30 +89,31 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 		benchmark = conv2d
 	case "fastwalshtransform":
 		fastwalshtransform := fastwalshtransform.NewBenchmark(driver)
-		fastwalshtransform.Length = 268435456
+		fastwalshtransform.Length = oneGiB / 4
 		benchmark = fastwalshtransform
 	case "fir":
 		fir := fir.NewBenchmark(driver)
-		fir.Length = 134217728
+		fir.Length = oneGiB / 8
 		benchmark = fir
 	case "fft":
 		fft := fft.NewBenchmark(driver)
-		fft.Bytes = 1024
+		// The FFT benchmark's Bytes field is interpreted as MiB.
+		fft.Bytes = oneGiB / oneMiB
 		fft.Passes = 4
 		benchmark = fft
 	case "floydwarshall":
 		floydwarshall := floydwarshall.NewBenchmark(driver)
-		floydwarshall.NumNodes = 11584
+		floydwarshall.NumNodes = 11520
 		floydwarshall.NumIterations = 1
 		benchmark = floydwarshall
 	case "gpt":
 		benchmark = gpt.NewBenchmark(driver)
 	case "im2col":
 		im2col := im2col.NewBenchmark(driver)
-		im2col.N = 2
+		im2col.N = 16 / 8
 		im2col.C = 3
-		im2col.H = 2116
-		im2col.W = 2116
+		im2col.H = 2048
+		im2col.W = 2048
 		im2col.KernelHeight = 3
 		im2col.KernelWidth = 3
 		im2col.PadX = 0
@@ -119,10 +125,10 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 		benchmark = im2col
 	case "kmeans":
 		kmeans := kmeans.NewBenchmark(driver)
-		kmeans.NumPoints = 53687091
-		kmeans.NumClusters = 2
-		kmeans.NumFeatures = 2
-		kmeans.MaxIter = 18
+		kmeans.NumPoints = 52 * oneMiB
+		kmeans.NumClusters = 8 / 4
+		kmeans.NumFeatures = 32 / 16
+		kmeans.MaxIter = 3 * 6
 		benchmark = kmeans
 	case "kvcache":
 		kvcache := kvcache.NewBenchmark(driver)
@@ -148,7 +154,7 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 		kvcache.NumLayers = 60
 		kvcache.NumHeads = 52
 		kvcache.NumKVHeads = 52
-		kvcache.SeqLen = 336
+		kvcache.SeqLen = 384
 		kvcache.HeadDim = 128
 		kvcache.SeqBlock = 64
 		kvcache.DecodeStep = 1
@@ -159,62 +165,67 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 		benchmark = llmop.NewBenchmarkFromFlags(driver)
 	case "matrixmultiplication":
 		matrixmultiplication := matrixmultiplication.NewBenchmark(driver)
-		matrixmultiplication.X = 128
-		matrixmultiplication.Y = 1048576
-		matrixmultiplication.Z = 128
+		matrixmultiplication.X = 2048 / 16
+		matrixmultiplication.Y = 2048 * 512
+		matrixmultiplication.Z = 2048 / 16
 		benchmark = matrixmultiplication
 	case "matrixmultiplication-ptw":
 		matrixmultiplication := matrixmultiplication.NewBenchmark(driver)
+		// Keep the output footprint close to matrixmultiplication, but reduce
+		// the inner dimension to the kernel's one-loop minimum. This lowers
+		// compute reuse per translated page and makes page walks more visible.
 		matrixmultiplication.X = 32
-		matrixmultiplication.Y = 1048576
-		matrixmultiplication.Z = 224
+		matrixmultiplication.Y = 2048 * 512
+		matrixmultiplication.Z = 2048 / 16
 		benchmark = matrixmultiplication
 	case "matrixmultiplication-ptw-heavy":
 		matrixmultiplication := matrixmultiplication.NewBenchmark(driver)
+		// Heavier PTW stress: low compute reuse plus twice the C-matrix page
+		// footprint. Use this when the light PTW variant is still too muted.
 		matrixmultiplication.X = 32
-		matrixmultiplication.Y = 933888
-		matrixmultiplication.Z = 256
+		matrixmultiplication.Y = 2048 * 512
+		matrixmultiplication.Z = 2048 / 8
 		benchmark = matrixmultiplication
 	case "matrixtranspose":
 		matrixtranspose := matrixtranspose.NewBenchmark(driver)
-		matrixtranspose.Width = 11584
+		matrixtranspose.Width = 11520
 		benchmark = matrixtranspose
 	case "nbody":
 		nbody := nbody.NewBenchmark(driver)
-		nbody.NumParticles = 16777216
+		nbody.NumParticles = 104857600 * 2
 		nbody.NumIterations = 1024
 		benchmark = nbody
 	case "nw":
 		nw := nw.NewBenchmark(driver)
-		nw.SetLength(9472)
+		nw.SetLength(8192 * 2)
 		benchmark = nw
 	case "pagerank":
 		pagerank := pagerank.NewBenchmark(driver)
-		pagerank.NumNodes = 88700000
+		pagerank.NumNodes = 85 * oneMiB
 		pagerank.NumConnections = 1048576
 		pagerank.MaxIterations = 1
 		benchmark = pagerank
 	case "relu":
 		relu := relu.NewBenchmark(driver)
-		relu.Length = 134217728
+		relu.Length = oneGiB / 8
 		benchmark = relu
 	case "resnet":
 		benchmark = resnet.NewBenchmark(driver)
 	case "simpleconvolution":
 		simpleconvolution := simpleconvolution.NewBenchmark(driver)
 		simpleconvolution.Height = 2048
-		simpleconvolution.Width = 65536
+		simpleconvolution.Width = 2048 * 32
 		simpleconvolution.SetMaskSize(3)
 		benchmark = simpleconvolution
 	case "spmv":
 		spmv := spmv.NewBenchmark(driver)
-		spmv.Dim = 84700000
+		spmv.Dim = 85 * oneMiB
 		spmv.Sparsity = 0.000000001
 		benchmark = spmv
 	case "stencil2d":
 		stencil2d := stencil2d.NewBenchmark(driver)
-		stencil2d.NumRows = 16384
-		stencil2d.NumCols = 8192
+		stencil2d.NumRows = 4096 * 2
+		stencil2d.NumCols = 4096
 		stencil2d.NumIteration = 3
 		benchmark = stencil2d
 	case "lenet":
@@ -287,3 +298,188 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 
 	return benchmark
 }
+
+// package benchmarkselection
+
+// import (
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/amdappsdk/bitonicsort"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/amdappsdk/fastwalshtransform"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/amdappsdk/floydwarshall"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/amdappsdk/matrixmultiplication"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/amdappsdk/matrixtranspose"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/amdappsdk/nbody"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/amdappsdk/simpleconvolution"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/dnn/layer_benchmarks/conv2d"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/dnn/layer_benchmarks/im2col"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/dnn/layer_benchmarks/relu"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/dnn/training_benchmarks/lenet"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/dnn/training_benchmarks/minerva"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/dnn/training_benchmarks/vgg16"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/heteromark/aes"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/heteromark/fir"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/heteromark/kmeans"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/heteromark/pagerank"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/polybench/atax"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/polybench/bicg"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/rodinia/nw"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/shoc/fft"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/shoc/spmv"
+// 	"github.com/sarchlab/mgpusim/v3/benchmarks/shoc/stencil2d"
+// 	"github.com/sarchlab/mgpusim/v3/driver"
+// )
+
+// func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
+// 	var benchmark benchmarks.Benchmark
+// 	switch name {
+// 	case "aes":
+// 		aes := aes.NewBenchmark(driver)
+// 		aes.Length = 1048576 * 4
+// 		benchmark = aes
+// 	case "atax":
+// 		atax := atax.NewBenchmark(driver)
+// 		atax.NX = 4096
+// 		atax.NY = 4096
+// 		benchmark = atax
+// 	case "bicg":
+// 		bicg := bicg.NewBenchmark(driver)
+// 		bicg.NX = 4096 * 4
+// 		bicg.NY = 4096 * 4
+// 		benchmark = bicg
+// 	case "bitonicsort":
+// 		bitonicsort := bitonicsort.NewBenchmark(driver)
+// 		bitonicsort.Length = 65536 * 4
+// 		benchmark = bitonicsort
+// 	case "conv2d":
+// 		conv2d := conv2d.NewBenchmark(driver)
+// 		conv2d.N = 8 / 2
+// 		conv2d.C = 3
+// 		conv2d.H = 300
+// 		conv2d.W = 300
+// 		conv2d.KernelChannel = 6
+// 		conv2d.KernelHeight = 3
+// 		conv2d.KernelWidth = 3
+// 		conv2d.PadX = 1
+// 		conv2d.PadY = 1
+// 		conv2d.StrideX = 1
+// 		conv2d.StrideY = 1
+// 		benchmark = conv2d
+// 	case "fastwalshtransform":
+// 		fastwalshtransform := fastwalshtransform.NewBenchmark(driver)
+// 		fastwalshtransform.Length = 1048576 * 8
+// 		benchmark = fastwalshtransform
+// 	case "fir":
+// 		fir := fir.NewBenchmark(driver)
+// 		fir.Length = 1048576 * 16
+// 		// fir.Length = 1024 * 16 * 8
+// 		benchmark = fir
+// 	case "fft":
+// 		fft := fft.NewBenchmark(driver)
+// 		fft.Bytes = 128
+// 		fft.Passes = 4
+// 		benchmark = fft
+// 	case "floydwarshall":
+// 		floydwarshall := floydwarshall.NewBenchmark(driver)
+// 		floydwarshall.NumNodes = 1024 * 2
+// 		floydwarshall.NumIterations = 1024 / 256
+// 		benchmark = floydwarshall
+// 	case "im2col":
+// 		im2col := im2col.NewBenchmark(driver)
+// 		im2col.N = 16 / 8
+// 		im2col.C = 3
+// 		im2col.H = 256
+// 		im2col.W = 256
+// 		im2col.KernelHeight = 3
+// 		im2col.KernelWidth = 3
+// 		im2col.PadX = 0
+// 		im2col.PadY = 0
+// 		im2col.StrideX = 1
+// 		im2col.StrideY = 1
+// 		im2col.DilateX = 1
+// 		im2col.DilateY = 1
+// 		benchmark = im2col
+// 	case "kmeans":
+// 		kmeans := kmeans.NewBenchmark(driver)
+// 		kmeans.NumPoints = 1048576
+// 		kmeans.NumClusters = 8 / 4
+// 		kmeans.NumFeatures = 32 / 16
+// 		kmeans.MaxIter = 3 * 6
+// 		benchmark = kmeans
+// 	case "matrixmultiplication":
+// 		matrixmultiplication := matrixmultiplication.NewBenchmark(driver)
+// 		matrixmultiplication.X = 2048 / 16
+// 		matrixmultiplication.Y = 2048 * 64
+// 		matrixmultiplication.Z = 2048 / 16
+// 		benchmark = matrixmultiplication
+// 	case "matrixtranspose":
+// 		matrixtranspose := matrixtranspose.NewBenchmark(driver)
+// 		matrixtranspose.Width = 4096 * 2
+// 		// matrixtranspose.Width = 4096 / 2
+// 		benchmark = matrixtranspose
+// 	case "nbody":
+// 		nbody := nbody.NewBenchmark(driver)
+// 		nbody.NumParticles = 104857600 * 2
+// 		nbody.NumIterations = 1024
+// 		benchmark = nbody
+// 	case "nw":
+// 		nw := nw.NewBenchmark(driver)
+// 		nw.SetLength(8192 * 2)
+// 		benchmark = nw
+// 	case "pagerank":
+// 		pagerank := pagerank.NewBenchmark(driver)
+// 		pagerank.NumNodes = 262144 * 2
+// 		pagerank.NumConnections = 1048576
+// 		pagerank.MaxIterations = 3
+// 		benchmark = pagerank
+// 	case "relu":
+// 		relu := relu.NewBenchmark(driver)
+// 		relu.Length = 10485760 * 8
+// 		benchmark = relu
+// 	case "simpleconvolution":
+// 		simpleconvolution := simpleconvolution.NewBenchmark(driver)
+// 		simpleconvolution.Height = 2048
+// 		simpleconvolution.Width = 2048 * 4
+// 		simpleconvolution.SetMaskSize(3)
+// 		benchmark = simpleconvolution
+// 	case "spmv":
+// 		spmv := spmv.NewBenchmark(driver)
+// 		spmv.Dim = 10485760 / 2
+// 		spmv.Sparsity = 0.000000001
+// 		benchmark = spmv
+// 	case "stencil2d":
+// 		stencil2d := stencil2d.NewBenchmark(driver)
+// 		stencil2d.NumRows = 4096 * 2
+// 		stencil2d.NumCols = 4096
+// 		stencil2d.NumIteration = 3
+// 		benchmark = stencil2d
+// 	case "lenet":
+// 		lenet := lenet.NewBenchmark(driver)
+// 		lenet.Epoch = 1
+// 		lenet.MaxBatchPerEpoch = 2
+// 		lenet.BatchSize = 32
+// 		lenet.EnableTesting = false
+// 		lenet.EnableVerification = false
+// 		benchmark = lenet
+// 	case "minerva":
+// 		minerva := minerva.NewBenchmark(driver)
+// 		minerva.Epoch = 1
+// 		minerva.MaxBatchPerEpoch = 2
+// 		minerva.BatchSize = 32
+// 		minerva.EnableTesting = false
+// 		minerva.EnableVerification = false
+// 		benchmark = minerva
+// 	case "vgg16":
+// 		vgg16 := vgg16.NewBenchmark(driver)
+// 		vgg16.Epoch = 1
+// 		vgg16.MaxBatchPerEpoch = 2
+// 		vgg16.BatchSize = 8
+// 		vgg16.EnableTesting = false
+// 		vgg16.EnableVerification = false
+// 		benchmark = vgg16
+
+// 	default:
+// 		panic("Unknown benchmark")
+// 	}
+
+// 	return benchmark
+// }

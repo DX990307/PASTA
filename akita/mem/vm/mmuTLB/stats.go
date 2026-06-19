@@ -1,6 +1,10 @@
 package mmuTLB
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/sarchlab/akita/v3/mem/vm/mmuTLB/internal"
+)
 
 // PrefetchOutcomeBlockStat summarizes observed prefetch outcomes for one BO/page block.
 type PrefetchOutcomeBlockStat struct {
@@ -40,6 +44,37 @@ func (tlb *TLB) VPNMSHRBaselineEnabled() bool {
 // each buffered request before tag lookup/hit-miss handling proceeds.
 func (tlb *TLB) LookupLatencyCycles() int {
 	return tlb.lookupLatencyCycles
+}
+
+// SetAsLineStats reports PTCL set-as-line lookup/fill activity in the
+// IOMMU-side TLB. The optimization is separate from the prefetcher.
+func (tlb *TLB) SetAsLineStats() (
+	enabled bool,
+	lookupJobs int,
+	requestedBits int,
+	hitBits int,
+	missBits int,
+	savedJobs int,
+	fills int,
+	conflictEvictions int,
+	lineEntries int,
+) {
+	for _, set := range tlb.Sets {
+		ptclSet, ok := set.(internal.PTCLSet)
+		if ok && ptclSet.PTCLLineValid() {
+			lineEntries++
+		}
+	}
+
+	return tlb.setAsLineTLBEnabled,
+		tlb.setLookupJobs,
+		tlb.setLookupRequestedBits,
+		tlb.setLookupHitBits,
+		tlb.setLookupMissBits,
+		tlb.setLookupSavedJobs,
+		tlb.setFills,
+		tlb.setConflictEvictions,
+		lineEntries
 }
 
 // PrefetchStats reports whether the MMUTLB prefetcher is enabled and how many

@@ -34,24 +34,24 @@ TRADITIONAL_BENCHMARKS = [
     "fir",
 ]
 
-LLM_BENCHMARKS = [
-    "bert",
-    "gpt",
-    "kvcache",
-    "kvcache-decode",
-    "kvcache-decode-30b",
-    "resnet",
-]
-
 EXPERIMENTAL_BENCHMARKS = [
+    "resnet",
     "llmop",
     "llminference",
     "matrixmultiplication-ptw",
     "matrixmultiplication-ptw-heavy",
 ]
 
+REMOVED_MONOLITHIC_LLM_BENCHMARKS = {
+    "bert",
+    "gpt",
+    "kvcache",
+    "kvcache-decode",
+    "kvcache-decode-30b",
+}
+
 ALL_BENCHMARKS = list(dict.fromkeys(
-    TRADITIONAL_BENCHMARKS + LLM_BENCHMARKS + EXPERIMENTAL_BENCHMARKS
+    TRADITIONAL_BENCHMARKS + EXPERIMENTAL_BENCHMARKS
 ))
 
 DEFAULT_RUN_BENCHMARKS = [
@@ -71,11 +71,6 @@ DEFAULT_RUN_BENCHMARKS = [
     "pagerank",
     "simpleconvolution",
     "fir",
-    "bert",
-    "gpt",
-    "kvcache",
-    "kvcache-decode",
-    "kvcache-decode-30b",
     "resnet",
     "llmop",
     "llminference",
@@ -86,7 +81,7 @@ DEFAULT_RUN_BENCHMARKS = [
 BENCHMARK_ALIASES = {
     "all": ALL_BENCHMARKS,
     "traditional": TRADITIONAL_BENCHMARKS,
-    "llm": LLM_BENCHMARKS,
+    "llm": ["llmop"],
     "experimental": EXPERIMENTAL_BENCHMARKS,
 }
 
@@ -112,12 +107,13 @@ BASE_COMMON_FLAGS = [
     "-report-all",
 ]
 
-DEFAULT_ADAPTIVE_LOW = 2
-DEFAULT_ADAPTIVE_HIGH = 6
+DEFAULT_ADAPTIVE_LOW = 4
+DEFAULT_ADAPTIVE_HIGH = 16
 DEFAULT_ADAPTIVE_THRESHOLD_PAIRS = "0:2,1:4,2:6,2:8,4:12,4:16,8:24"
 DEFAULT_MMUTLB_PTCL_RETURN_LATENCY = 80
 DEFAULT_MMUTLB_LOOKUP_LATENCY = 80
 DEFAULT_GMMU_PTE_LOOKUP_LATENCY = 32
+DEFAULT_GMMU_FLEX_PROMOTION_THRESHOLD = 3
 DEFAULT_TIMEOUT_MINUTES = 0.0
 DEFAULT_PHOTON_SAMPLED_WARMUP = 512
 DEFAULT_PHOTON_SAMPLED_GRANULARITY = 512
@@ -135,6 +131,10 @@ COALESCING_FLAGS = [
 
 GMMU_PREFETCH_FLAGS = [
     "-gmmu-prefetch",
+]
+
+IOMMU_TLB_OPT_FLAGS = [
+    "-mmutlb-flex-tlb",
 ]
 
 VPN_MSHR_BASELINE_FLAGS = [
@@ -162,7 +162,10 @@ CONFIGS = [
 PTCL_CONFIG_NAMES = [
     "baseline",
     "gmmu_prefetch",
+    "flex_entry",
     "ptcl_mode",
+    "ptcl_flex",
+    "ptcl_mode_flex",
     "pasta",
     "coalescing",
     "camsat",
@@ -265,7 +268,11 @@ def parse_args():
         dest="memory_scan_interval_minutes",
         type=float,
         default=DEFAULT_MEMORY_SCAN_INTERVAL_MINUTES,
-        help="How often to check MemAvailable and consider launching one benchmark.",
+        help=(
+            "How often to check MemAvailable and consider launching one "
+            "benchmark. A completed benchmark also triggers one immediate "
+            "memory check."
+        ),
     )
     parser.add_argument(
         "--photon-debug",
@@ -326,6 +333,12 @@ def parse_args():
         help="Scan adaptive thresholds with PTCL adaptation and MMU coalescing enabled.",
     )
     parser.add_argument(
+        "--ptcl-flex-test",
+        dest="ptcl_flex_test",
+        action="store_true",
+        help="Run only ptcl_mode, ptcl_flex, and ptcl_mode_flex configs.",
+    )
+    parser.add_argument(
         "--adaptive-threshold-pairs",
         dest="adaptive_threshold_pairs",
         default=DEFAULT_ADAPTIVE_THRESHOLD_PAIRS,
@@ -344,6 +357,19 @@ def parse_args():
         type=int,
         default=DEFAULT_GMMU_PTE_LOOKUP_LATENCY,
         help="Fixed GMMU L2 TLB lookup latency per internal PTE lookup job, in cycles.",
+    )
+    parser.add_argument(
+        "--gmmu-ptcl-serial-lookup",
+        dest="gmmu_ptcl_serial_lookup",
+        action="store_true",
+        help="Model non-flex GMMU PTCL lookup as one serial bitmap lookup instead of parallel per-bit lookup jobs.",
+    )
+    parser.add_argument(
+        "--gmmu-flex-promotion-threshold",
+        dest="gmmu_flex_promotion_threshold",
+        type=int,
+        default=DEFAULT_GMMU_FLEX_PROMOTION_THRESHOLD,
+        help="Minimum valid bitmap fill bits before Flex stores a PTCL-line entry.",
     )
     return parser.parse_args()
 
@@ -380,6 +406,16 @@ def expand_benchmark_selection(selected):
             expanded += BENCHMARK_ALIASES[item]
         else:
             expanded.append(item)
+    blocked = [
+        item for item in expanded
+        if item in REMOVED_MONOLITHIC_LLM_BENCHMARKS
+    ]
+    if blocked:
+        raise ValueError(
+            "monolithic LLM benchmarks were removed from runall2.py: "
+            + ",".join(blocked)
+            + ". Use runllm_decomposed.py for BERT/GPT experiments."
+        )
     return unique_preserving_order(expanded)
 
 
@@ -419,6 +455,8 @@ def build_common_flags(args):
         f"-mmutlb-ptcl-return-latency={args.mmutlb_ptcl_return_latency}",
         f"-gmmu-pte-lookup-latency={args.gmmu_pte_lookup_latency}",
     ]
+    if args.gmmu_ptcl_serial_lookup:
+        flags.append("-gmmu-ptcl-serial-lookup")
     return flags
 
 
@@ -432,12 +470,21 @@ def build_ablation_configs(args):
         return [
             (
                 f"adaptive_l{low}_h{high}_camsat",
-                adaptive_flags(low, high) + COALESCING_FLAGS,
+                adaptive_flags(low, high) + IOMMU_TLB_OPT_FLAGS + COALESCING_FLAGS,
             )
             for low, high in threshold_pairs
         ]
 
     ptcl_configs = build_ptcl_config_map(args)
+    if args.ptcl_flex_test:
+        if args.configs:
+            raise ValueError("--ptcl-flex-test cannot be combined with --configs")
+        return [
+            ("ptcl_mode", ptcl_configs["ptcl_mode"]),
+            ("ptcl_flex", ptcl_configs["ptcl_flex"]),
+            ("ptcl_mode_flex", ptcl_configs["ptcl_mode_flex"]),
+        ]
+
     if args.configs:
         return build_selected_configs(args, ptcl_configs)
 
@@ -449,14 +496,28 @@ def build_ptcl_config_map(args):
     high = args.adaptive_threshold_high
     if low > high:
         low, high = high, low
+    flex_flags = [
+        "-gmmu-flex-tlb",
+        f"-gmmu-flex-promotion-threshold={args.gmmu_flex_promotion_threshold}",
+    ]
 
     return {
         "baseline": VPN_MSHR_BASELINE_FLAGS,
         "gmmu_prefetch": VPN_MSHR_BASELINE_FLAGS + GMMU_PREFETCH_FLAGS,
-        "ptcl_mode": adaptive_flags(low, high),
-        "pasta": adaptive_flags(low, high) + GMMU_PREFETCH_FLAGS,
+        "flex_entry": VPN_MSHR_BASELINE_FLAGS + flex_flags,
+        "ptcl_mode": adaptive_flags(low, high)
+        + IOMMU_TLB_OPT_FLAGS
+        + ["-gmmu-ptcl-serial-lookup"],
+        "ptcl_flex": VPN_MSHR_BASELINE_FLAGS + flex_flags,
+        "ptcl_mode_flex": adaptive_flags(low, high)
+        + flex_flags
+        + IOMMU_TLB_OPT_FLAGS,
+        "pasta": adaptive_flags(low, high)
+        + flex_flags
+        + IOMMU_TLB_OPT_FLAGS
+        + GMMU_PREFETCH_FLAGS,
         "coalescing": VPN_MSHR_BASELINE_FLAGS + COALESCING_FLAGS,
-        "camsat": adaptive_flags(low, high) + COALESCING_FLAGS,
+        "camsat": adaptive_flags(low, high) + IOMMU_TLB_OPT_FLAGS + COALESCING_FLAGS,
     }
 
 
@@ -841,6 +902,61 @@ def print_scheduler_status(prefix, queued, running, completed, failed):
     )
 
 
+def try_launch_ready_experiments(
+    queued,
+    running,
+    args,
+    min_mem_available_kb,
+    status_prefix,
+    completed,
+    failed,
+    settle_seconds=0.0,
+    max_launches=None,
+):
+    launched_any = False
+    blocked_reason = ""
+    launched_count = 0
+
+    while (
+        queued
+        and not running_cap_reached(args, running)
+        and (max_launches is None or launched_count < max_launches)
+    ):
+        available_kb = read_mem_available_kb()
+        print(
+            f"{status_prefix} "
+            f"MemAvailable={available_kb} KiB "
+            f"({format_memory_kb(available_kb)}), "
+            f"threshold={min_mem_available_kb} KiB "
+            f"({format_memory_kb(min_mem_available_kb)})",
+            flush=True,
+        )
+        print_scheduler_status(
+            status_prefix, queued, running, completed, failed)
+
+        if available_kb is None:
+            blocked_reason = "mem_unknown"
+            break
+
+        if available_kb < min_mem_available_kb:
+            blocked_reason = "low_mem"
+            break
+
+        exp = queued.pop(0)
+        running.append(launch_experiment(exp))
+        launched_any = True
+        launched_count += 1
+        print_scheduler_status("[launch]", queued, running, completed, failed)
+
+        if settle_seconds > 0 and queued and not running_cap_reached(args, running):
+            time.sleep(settle_seconds)
+
+    if queued and running_cap_reached(args, running):
+        blocked_reason = "cap"
+
+    return launched_any, blocked_reason
+
+
 def memory_gated_run(exps, args):
     queued = list(exps)
     running = []
@@ -898,49 +1014,38 @@ def memory_gated_run(exps, args):
         running = still_running
         if completed_this_round:
             initial_fill_cap_logged = False
+            if queued and not initial_fill:
+                next_scan_time = time.monotonic()
 
         if queued and initial_fill:
-            launched_any = False
-            while queued and not running_cap_reached(args, running):
-                available_kb = read_mem_available_kb()
+            launched_any, blocked_reason = try_launch_ready_experiments(
+                queued,
+                running,
+                args,
+                min_mem_available_kb,
+                "[initial-fill]",
+                completed,
+                failed,
+                settle_seconds=INITIAL_FILL_SETTLE_SECONDS,
+            )
+            if launched_any:
+                initial_fill_cap_logged = False
+
+            if blocked_reason == "mem_unknown":
                 print(
-                    "[initial-fill] "
-                    f"MemAvailable={available_kb} KiB "
-                    f"({format_memory_kb(available_kb)}), "
-                    f"threshold={min_mem_available_kb} KiB "
-                    f"({format_memory_kb(min_mem_available_kb)})",
+                    "Initial fill paused: cannot read Linux MemAvailable.",
                     flush=True,
                 )
-                print_scheduler_status(
-                    "[initial-fill]", queued, running, completed, failed)
-
-                if available_kb is None:
-                    print(
-                        "Initial fill paused: cannot read Linux MemAvailable.",
-                        flush=True,
-                    )
-                    initial_fill = False
-                    next_scan_time = time.monotonic() + scan_interval_seconds
-                    break
-
-                if available_kb < min_mem_available_kb:
-                    print(
-                        "Initial fill complete: not enough free RAM to launch "
-                        "the next benchmark.",
-                        flush=True,
-                    )
-                    initial_fill = False
-                    next_scan_time = time.monotonic() + scan_interval_seconds
-                    break
-
-                exp = queued.pop(0)
-                running.append(launch_experiment(exp))
-                launched_any = True
-                initial_fill_cap_logged = False
-                print_scheduler_status(
-                    "[launch]", queued, running, completed, failed)
-                if queued and not running_cap_reached(args, running):
-                    time.sleep(INITIAL_FILL_SETTLE_SECONDS)
+                initial_fill = False
+                next_scan_time = time.monotonic() + scan_interval_seconds
+            elif blocked_reason == "low_mem":
+                print(
+                    "Initial fill complete: not enough free RAM to launch "
+                    "the next benchmark.",
+                    flush=True,
+                )
+                initial_fill = False
+                next_scan_time = time.monotonic() + scan_interval_seconds
 
             if queued and running_cap_reached(args, running):
                 if not initial_fill_cap_logged:
@@ -957,40 +1062,34 @@ def memory_gated_run(exps, args):
 
         now = time.monotonic()
         if queued and not initial_fill and now >= next_scan_time:
-            available_kb = read_mem_available_kb()
-            print(
-                "[memory-scan] "
-                f"MemAvailable={available_kb} KiB "
-                f"({format_memory_kb(available_kb)}), "
-                f"threshold={min_mem_available_kb} KiB "
-                f"({format_memory_kb(min_mem_available_kb)})",
-                flush=True,
+            _, blocked_reason = try_launch_ready_experiments(
+                queued,
+                running,
+                args,
+                min_mem_available_kb,
+                "[memory-scan]",
+                completed,
+                failed,
+                max_launches=1,
             )
-            print_scheduler_status(
-                "[memory-scan]", queued, running, completed, failed)
 
-            if available_kb is None:
+            if blocked_reason == "mem_unknown":
                 print(
                     "Waiting: cannot read Linux MemAvailable.",
                     flush=True,
                 )
-            elif available_kb < min_mem_available_kb:
+            elif blocked_reason == "low_mem":
                 print(
                     "Waiting: not enough free RAM to launch the next benchmark.",
                     flush=True,
                 )
-            elif running_cap_reached(args, running):
+            elif blocked_reason == "cap":
                 print(
                     "Waiting: optional max-workers cap is reached.",
                     flush=True,
                 )
-            else:
-                exp = queued.pop(0)
-                running.append(launch_experiment(exp))
-                print_scheduler_status(
-                    "[launch]", queued, running, completed, failed)
 
-            next_scan_time = now + scan_interval_seconds
+            next_scan_time = time.monotonic() + scan_interval_seconds
 
         if queued or running:
             if queued and not initial_fill:

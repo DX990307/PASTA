@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	"github.com/sarchlab/akita/v3/mem/vm"
+	"github.com/sarchlab/akita/v3/mem/vm/translationtrace"
 	"github.com/sarchlab/akita/v3/sim"
 	"github.com/sarchlab/akita/v3/tracing"
 )
@@ -72,11 +73,23 @@ func (gmmu *GMMU) Tick(now sim.VTimeInSec) bool {
 	madeProgress = gmmu.walkPageTable(now) || madeProgress
 	madeProgress = gmmu.fetchFromBottom(now) || madeProgress
 
+	translationtrace.ObserveLocalGMMU(
+		now,
+		gmmu.Name(),
+		len(gmmu.walkingTranslations),
+		gmmu.maxRequestsInFlight,
+		len(gmmu.walkingTranslations) >= gmmu.maxRequestsInFlight,
+	)
+
 	return madeProgress
 }
 
 func (gmmu *GMMU) parseFromTop(now sim.VTimeInSec) bool {
 	if len(gmmu.walkingTranslations) >= gmmu.maxRequestsInFlight {
+		msg := gmmu.topPort.Peek()
+		if req, ok := msg.(*vm.TranslationReq); ok && req != nil && !req.IsPrefetch {
+			translationtrace.BeginStage(req.ID, "local_gmmu_ptw_queue_wait", now)
+		}
 		return false
 	}
 
@@ -89,6 +102,9 @@ func (gmmu *GMMU) parseFromTop(now sim.VTimeInSec) bool {
 
 	switch req := req.(type) {
 	case *vm.TranslationReq:
+		if !req.IsPrefetch {
+			translationtrace.EndStage(req.ID, "local_gmmu_ptw_queue_wait", now)
+		}
 		gmmu.startWalking(req, now)
 		tracing.StartTask(req.TaskID, "", gmmu, "GMMU", "TranslationReq", req)
 
@@ -106,6 +122,13 @@ func (gmmu *GMMU) startWalking(req *vm.TranslationReq, now sim.VTimeInSec) {
 	}
 
 	gmmu.walkingTranslations = append(gmmu.walkingTranslations, translationInPipeline)
+	if req != nil && !req.IsPrefetch {
+		translationtrace.AddStageCycles(
+			req.ID,
+			"local_gmmu_ptw_service",
+			uint64(gmmu.latency),
+		)
+	}
 }
 
 func (gmmu *GMMU) sendReqToBottomPort(now sim.VTimeInSec) {
@@ -177,6 +200,7 @@ func (gmmu *GMMU) processRemoteMemReq(now sim.VTimeInSec, walkingIndex int) bool
 		WithOriginPort(walking.OriginPort).
 		WithPrefetch(walking.IsPrefetch).
 		Build()
+	translationtrace.LinkRequest(req.ID, walking.ID)
 
 	err := gmmu.bottomPort.Send(req)
 

@@ -111,23 +111,27 @@ func (m *GPUMatrixMultiplier) launchKernel(
 func (m *GPUMatrixMultiplier) initMemory(
 	mA, mB, mC *Matrix,
 ) (driver.Ptr, driver.Ptr, driver.Ptr) {
+	sizeA := uint64(mA.Width * mA.Height * 4)
+	sizeB := uint64(mB.Width * mB.Height * 4)
+	sizeC := uint64(mC.Width * mC.Height * 4)
+
 	if m.useUnifiedMemory {
-		gA := m.driver.AllocateUnifiedMemory(m.context, uint64(mA.Width*mA.Height*4))
-		gB := m.driver.AllocateUnifiedMemory(m.context, uint64(mB.Width*mB.Height*4))
-		gC := m.driver.AllocateUnifiedMemory(m.context, uint64(mC.Width*mC.Height*4))
+		gA := m.driver.AllocateUnifiedMemory(m.context, sizeA)
+		gB := m.driver.AllocateUnifiedMemory(m.context, sizeB)
+		gC := m.driver.AllocateUnifiedMemory(m.context, sizeC)
 		m.driver.MemCopyH2D(m.context, gA, mA.Data)
 		m.driver.MemCopyH2D(m.context, gB, mB.Data)
 
 		return gA, gB, gC
 	}
-	gA := m.driver.AllocateMemory(m.context, uint64(mA.Width*mA.Height*4))
-	m.driver.Distribute(m.context, gA, uint64(mA.Width*mA.Height*4), m.gpus)
+	gA := m.driver.AllocateMemory(m.context, sizeA)
+	m.driver.Distribute(m.context, gA, sizeA, m.gpus)
 
-	gB := m.driver.AllocateMemory(m.context, uint64(mB.Width*mB.Height*4))
-	m.driver.Distribute(m.context, gB, uint64(mB.Width*mB.Height*4), m.gpus)
+	gB := m.driver.AllocateMemory(m.context, sizeB)
+	m.driver.Distribute(m.context, gB, sizeB, m.gpus)
 
-	gC := m.driver.AllocateMemory(m.context, uint64(mC.Width*mC.Height*4))
-	m.driver.Distribute(m.context, gC, uint64(mC.Width*mC.Height*4), m.gpus)
+	gC := m.driver.AllocateMemory(m.context, sizeC)
+	m.driver.Distribute(m.context, gC, sizeC, m.gpus)
 	m.driver.MemCopyH2D(m.context, gA, mA.Data)
 	m.driver.MemCopyH2D(m.context, gB, mB.Data)
 

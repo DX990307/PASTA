@@ -603,6 +603,7 @@ func (b *R9NanoPlatformBuilder) createIOMMUTLB(
 		WithLog2PageSize(b.log2PageSize).
 		WithPerVPNMSHRBaseline(*mmutlbVPNMSHRBaseline).
 		WithDemandPTEOnly(*mmutlbDemandPTEOnly).
+		WithSetAsLineTLB(*mmutlbFlexTLB).
 		WithLookupLatencyCycles(*mmutlbPTCLReturnLatency).
 		WithTranslationPrefetcher(*mmutlbPrefetch).
 		WithPrefetchDemandPTCLReturn(*mmutlbPrefetchDemandPTCLReturn).

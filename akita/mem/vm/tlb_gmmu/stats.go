@@ -1,5 +1,7 @@
 package tlb_gmmu
 
+import "github.com/sarchlab/akita/v3/mem/vm/tlb_gmmu/internal"
+
 // PTCLModeEnabled reports whether the L2 TLB is currently coalescing at PTCL
 // granularity.
 func (tlb *GMMUTLB) PTCLModeEnabled() bool {
@@ -26,6 +28,12 @@ func (tlb *GMMUTLB) ModeSwitchCounts() (toPTCL, toPTE int) {
 // while the adaptive L2 TLB was in PTE or PTCL mode.
 func (tlb *GMMUTLB) ModeCompletionCounts() (pteMode, ptclMode int) {
 	return tlb.pteModeCompletions, tlb.ptclModeCompletions
+}
+
+// PTCLSetModeFlushes returns how often the set-as-line TLB state was flushed
+// because the MSHR coalescing mode switched.
+func (tlb *GMMUTLB) PTCLSetModeFlushes() int {
+	return tlb.ptclSetModeFlushes
 }
 
 // VPNMSHRBaselineEnabled reports whether the GMMU L2 TLB is using exact-VPN
@@ -56,6 +64,88 @@ func (tlb *GMMUTLB) PTELookupDelayStats() (count int, cycles int) {
 // the maximum waiting queue length observed.
 func (tlb *GMMUTLB) PTELookupQueueStats() (maxInflight, maxWaiting int) {
 	return tlb.pteLookupMaxInflight, tlb.pteLookupMaxWaiting
+}
+
+func (tlb *GMMUTLB) resetFlexStats() {
+	tlb.flexLookupJobs = 0
+	tlb.flexLookupRequestedBits = 0
+	tlb.flexLookupHitBits = 0
+	tlb.flexLookupMissBits = 0
+	tlb.flexLookupSavedJobs = 0
+	tlb.flexPTEPackHits = 0
+	tlb.flexPTCLLineHits = 0
+	tlb.flexPartialPTCLHits = 0
+	tlb.flexFullPTCLHits = 0
+	tlb.flexPromotions = 0
+	tlb.flexDemotions = 0
+	tlb.flexInvalidatedPTEPackSlots = 0
+	tlb.flexEvictedValidSlotsForPTCL = 0
+	tlb.ptclSetModeFlushes = 0
+	tlb.pcdFallbackLookupBits = 0
+	tlb.pcdStaleBits = 0
+}
+
+func (tlb *GMMUTLB) FlexTLBStats() (
+	enabled bool,
+	promotionThreshold int,
+	ptePackEntries int,
+	ptclLineEntries int,
+	lookupJobs int,
+	requestedBits int,
+	hitBits int,
+	missBits int,
+	savedJobs int,
+	ptePackHits int,
+	ptclLineHits int,
+	partialPTCLHits int,
+	fullPTCLHits int,
+	promotions int,
+	demotions int,
+	invalidatedPTEPackSlots int,
+	evictedValidSlotsForPTCL int,
+	flexSets int,
+	flexWays int,
+	flexPTESlots int,
+) {
+	if tlb.flexTLBEnabled {
+		flexPTESlots = tlb.numSets * tlb.numWays
+		for _, set := range tlb.Sets {
+			ptclSet, ok := set.(internal.PTCLSet)
+			if !ok {
+				continue
+			}
+			ptePackEntries += ptclSet.ValidPageCount()
+		}
+		if tlb.pcd != nil {
+			flexSets = tlb.pcd.numSets
+			flexWays = tlb.pcd.numWays
+			ptclLineEntries = tlb.pcd.validEntryCount()
+		} else {
+			flexSets = tlb.numSets
+			flexWays = tlb.numWays
+		}
+	}
+
+	return tlb.flexTLBEnabled,
+		tlb.flexPromotionThreshold,
+		ptePackEntries,
+		ptclLineEntries,
+		tlb.flexLookupJobs,
+		tlb.flexLookupRequestedBits,
+		tlb.flexLookupHitBits,
+		tlb.flexLookupMissBits,
+		tlb.flexLookupSavedJobs,
+		tlb.flexPTEPackHits,
+		tlb.flexPTCLLineHits,
+		tlb.flexPartialPTCLHits,
+		tlb.flexFullPTCLHits,
+		tlb.flexPromotions,
+		tlb.flexDemotions,
+		tlb.flexInvalidatedPTEPackSlots,
+		tlb.flexEvictedValidSlotsForPTCL,
+		flexSets,
+		flexWays,
+		flexPTESlots
 }
 
 // PrefetchStats reports whether the GMMU-side prefetcher is enabled and how

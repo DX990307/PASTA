@@ -6,6 +6,7 @@ import (
 
 	"github.com/sarchlab/akita/v3/mem/mem"
 	"github.com/sarchlab/akita/v3/mem/vm"
+	"github.com/sarchlab/akita/v3/mem/vm/translationtrace"
 	"github.com/sarchlab/akita/v3/sim"
 	"github.com/sarchlab/akita/v3/tracing"
 )
@@ -70,6 +71,15 @@ func (mmu *MMU) Tick(now sim.VTimeInSec) bool {
 	madeProgress = mmu.sendMigrationToDriver(now) || madeProgress
 	madeProgress = mmu.walkPageTable(now) || madeProgress
 	madeProgress = mmu.processMigrationReturn(now) || madeProgress
+
+	translationtrace.ObserveSharedMMU(
+		now,
+		mmu.Name(),
+		len(mmu.walkingTranslations),
+		mmu.maxRequestsInFlight,
+		len(mmu.PWqueue),
+		len(mmu.walkingTranslations) >= mmu.maxRequestsInFlight,
+	)
 
 	return madeProgress
 }
@@ -408,6 +418,9 @@ func (mmu *MMU) parseFromTop(now sim.VTimeInSec) bool {
 
 		mmu.PWqueue = append(mmu.PWqueue, PWqueue{req: req})
 		mmu.topPort.Retrieve(now)
+		if !req.IsPrefetch {
+			translationtrace.BeginStage(req.ID, "shared_mmu_pwqueue_wait", now)
+		}
 
 		mmu.mockBuffer = mmu.mockBuffer[1:]
 		tracing.TraceReqReceive(req, mmu)
@@ -448,7 +461,7 @@ func (mmu *MMU) processTranslationReqs(now sim.VTimeInSec) bool {
 		// 	log.Panicf("MMU canot handle request of type %s", reflect.TypeOf(req))
 		// }
 
-		mmu.startWalking(pw.req, mmu.coalescedUpperLatency(pw.req))
+		mmu.startWalking(pw.req, mmu.coalescedUpperLatency(pw.req), now)
 		madeProgress = true
 
 		if len(mmu.walkingTranslations) >= mmu.maxRequestsInFlight {
@@ -459,7 +472,11 @@ func (mmu *MMU) processTranslationReqs(now sim.VTimeInSec) bool {
 	return madeProgress
 }
 
-func (mmu *MMU) startWalking(req *vm.TranslationReq, upperLatency uint64) {
+func (mmu *MMU) startWalking(
+	req *vm.TranslationReq,
+	upperLatency uint64,
+	now sim.VTimeInSec,
+) {
 	l := upperLatency + 100
 
 	translationInPipeline := transaction{
@@ -468,6 +485,14 @@ func (mmu *MMU) startWalking(req *vm.TranslationReq, upperLatency uint64) {
 	}
 
 	mmu.walkingTranslations = append(mmu.walkingTranslations, translationInPipeline)
+	if req != nil && !req.IsPrefetch {
+		translationtrace.EndStage(req.ID, "shared_mmu_pwqueue_wait", now)
+		translationtrace.AddStageCycles(
+			req.ID,
+			"shared_mmu_ptw_service",
+			l,
+		)
+	}
 }
 
 func (mmu *MMU) hasBitmap(bitmap [8]bool) bool {

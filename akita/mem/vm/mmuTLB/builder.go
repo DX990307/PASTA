@@ -24,6 +24,7 @@ type Builder struct {
 	pagetable                   vm.PageTable
 	perVPNMSHRBaseline          bool
 	demandPTEOnly               bool
+	setAsLineTLBEnabled         bool
 	lookupLatencyCycles         int
 	prefetchEnabled             bool
 	prefetchDemandPTCLReturn    bool
@@ -88,6 +89,11 @@ func (b Builder) WithTranslationPrefetcher(enabled bool) Builder {
 
 func (b Builder) WithDemandPTEOnly(enabled bool) Builder {
 	b.demandPTEOnly = enabled
+	return b
+}
+
+func (b Builder) WithSetAsLineTLB(enabled bool) Builder {
+	b.setAsLineTLBEnabled = enabled
 	return b
 }
 
@@ -210,6 +216,7 @@ func (b Builder) Build(name string) *TLB {
 	tlb.pageTable = b.pagetable
 	tlb.vpnMSHRBaseline = b.perVPNMSHRBaseline
 	tlb.demandPTEOnly = b.demandPTEOnly
+	tlb.setAsLineTLBEnabled = b.setAsLineTLBEnabled
 	tlb.lookupLatencyCycles = b.lookupLatencyCycles
 	tlb.prefetcher = newTranslationPrefetcher(
 		b.prefetchEnabled,

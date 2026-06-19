@@ -1563,7 +1563,7 @@ func (tlb *GMMUTLB) isPageResident(page vm.Page) bool {
 		return false
 	}
 
-	setID := tlb.vAddrToSetID(page.VAddr)
+	setID := tlb.vAddrToSetIDForPID(page.PID, page.VAddr)
 	_, foundPage, found := tlb.Sets[setID].Lookup(page.PID, page.VAddr)
 	return found && foundPage.Valid
 }
@@ -1704,7 +1704,7 @@ func (tlb *GMMUTLB) residentBitmap(
 		}
 
 		pageVAddr := baseVAddr + (uint64(i) << tlb.log2Pagesize)
-		setID := tlb.vAddrToSetID(pageVAddr)
+		setID := tlb.vAddrToSetIDForPID(pid, pageVAddr)
 		_, page, found := tlb.Sets[setID].Lookup(pid, pageVAddr)
 		if found && page.Valid {
 			resident[i] = true

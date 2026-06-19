@@ -42,6 +42,7 @@ type mshr interface {
 	Remove(pid vm.PID, addr uint64) *mshrEntry
 	AllEntries() []*mshrEntry
 	IsFull() bool
+	Occupancy() (entries int, capacity int)
 	IsEntryFull(pid vm.PID, vAddr uint64) bool
 	Reset()
 	GetEntry(pid vm.PID, vAddr uint64) *mshrEntry
@@ -131,6 +132,10 @@ func (m *mshrImpl) AllEntries() []*mshrEntry {
 
 func (m *mshrImpl) IsFull() bool {
 	return len(m.entries) >= m.capacity
+}
+
+func (m *mshrImpl) Occupancy() (entries int, capacity int) {
+	return len(m.entries), m.capacity
 }
 
 func (m *mshrImpl) Reset() {

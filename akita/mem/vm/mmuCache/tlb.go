@@ -6,6 +6,7 @@ import (
 
 	"github.com/sarchlab/akita/v3/mem/vm"
 	"github.com/sarchlab/akita/v3/mem/vm/mmuCache/internal"
+	"github.com/sarchlab/akita/v3/mem/vm/translationtrace"
 	"github.com/sarchlab/akita/v3/sim"
 )
 
@@ -151,6 +152,14 @@ func (cache *MMUCache) sendReqToBottom(
 		return false
 	}
 
+	translationtrace.LinkRequest(reqToBottom.ID, req.ID)
+	if !req.IsPrefetch {
+		translationtrace.AddStageCycles(
+			req.ID,
+			"iommucache_upper_level_latency",
+			latency,
+		)
+	}
 	cache.topPort.Retrieve(now)
 
 	return true

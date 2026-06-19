@@ -9,6 +9,7 @@ import (
 	"github.com/sarchlab/akita/v3/mem/mem"
 	"github.com/sarchlab/akita/v3/mem/vm"
 	"github.com/sarchlab/akita/v3/mem/vm/mmuTLB/internal"
+	"github.com/sarchlab/akita/v3/mem/vm/translationtrace"
 	"github.com/sarchlab/akita/v3/sim"
 	"github.com/sarchlab/akita/v3/tracing"
 )
@@ -51,7 +52,15 @@ type TLB struct {
 	downstreamReqCount         int
 	vpnMSHRBaseline            bool
 	demandPTEOnly              bool
+	setAsLineTLBEnabled        bool
 	lookupLatencyCycles        int
+	setLookupJobs              int
+	setLookupRequestedBits     int
+	setLookupHitBits           int
+	setLookupMissBits          int
+	setLookupSavedJobs         int
+	setFills                   int
+	setConflictEvictions       int
 	prefetcher                 *translationPrefetcher
 	inflightPrefetches         map[prefetchTargetKey]struct{}
 	prefetchReqStates          map[string]*prefetchReqState
@@ -137,6 +146,13 @@ func (tlb *TLB) reset() {
 	tlb.prefetchUsefulHitCount = 0
 	tlb.prefetchLateDemandCount = 0
 	tlb.prefetchLostBeforeUseCount = 0
+	tlb.setLookupJobs = 0
+	tlb.setLookupRequestedBits = 0
+	tlb.setLookupHitBits = 0
+	tlb.setLookupMissBits = 0
+	tlb.setLookupSavedJobs = 0
+	tlb.setFills = 0
+	tlb.setConflictEvictions = 0
 }
 
 // Tick defines how TLB update states at each cycle
@@ -161,6 +177,17 @@ func (tlb *TLB) Tick(now sim.VTimeInSec) bool {
 		}
 	}
 
+	if tlb.mshr != nil {
+		entries, capacity := tlb.mshr.Occupancy()
+		translationtrace.ObserveIOMMUTLB(
+			now,
+			tlb.Name(),
+			entries,
+			capacity,
+			entries >= capacity,
+		)
+	}
+
 	return madeProgress
 }
 func (tlb *TLB) pushReqBuffer(now sim.VTimeInSec) bool {
@@ -178,6 +205,7 @@ func (tlb *TLB) pushReqBuffer(now sim.VTimeInSec) bool {
 		tlb.reqBuffer = append(tlb.reqBuffer, req)
 		tlb.setLookupReadyTime(now, req)
 		tlb.incomingReqCount++
+		translationtrace.RecordIOMMUIncoming(now)
 		tlb.maybeEnqueuePrefetches(now, req)
 		tlb.topPort.Retrieve(now)
 
@@ -290,6 +318,10 @@ func (tlb *TLB) lookup(now sim.VTimeInSec) bool {
 }
 
 func (tlb *TLB) handleTranslationHits(now sim.VTimeInSec, req *vm.TranslationReq) bool {
+	if tlb.usePTCLSetLookup(req) {
+		return tlb.handlePTCLSetTranslationHits(now, req)
+	}
+
 	pages := [8]vm.Page{}
 	BaseVaddr := tlb.getBaseVaddr(req.VAddr)
 	BaseVPN := BaseVaddr >> tlb.log2PageSize
@@ -341,6 +373,50 @@ func (tlb *TLB) handleTranslationHits(now sim.VTimeInSec, req *vm.TranslationReq
 	return true
 }
 
+func (tlb *TLB) handlePTCLSetTranslationHits(
+	now sim.VTimeInSec,
+	req *vm.TranslationReq,
+) bool {
+	bitmap := tlb.normalizeBitmap(req)
+	baseVAddr := tlb.getBaseVaddr(req.VAddr)
+	setID := tlb.ptclVAddrToSetID(req.PID, baseVAddr)
+	ptclSet, ok := tlb.Sets[setID].(internal.PTCLSet)
+	if !ok {
+		return false
+	}
+
+	result := ptclSet.LookupPTCL(req.PID, baseVAddr, bitmap, tlb.pageSize)
+	requestedBits := tlb.bitmapCount(bitmap)
+	hitBits := tlb.bitmapCount(result.HitBitmap)
+	missBits := tlb.bitmapCount(result.MissBitmap)
+	tlb.setLookupJobs++
+	tlb.setLookupRequestedBits += requestedBits
+	tlb.setLookupHitBits += hitBits
+	tlb.setLookupMissBits += missBits
+	if requestedBits > 1 {
+		tlb.setLookupSavedJobs += requestedBits - 1
+	}
+	if missBits > 0 {
+		return false
+	}
+
+	if !req.IsPrefetch {
+		tlb.observePrefetchUsefulHit(req)
+	}
+
+	for i := 0; i < 8; i++ {
+		if !bitmap[i] {
+			continue
+		}
+		if !tlb.sendRspToTop(now, req, result.Pages[i]) {
+			return false
+		}
+	}
+
+	tlb.reqBuffer = tlb.reqBuffer[1:]
+	return true
+}
+
 func (tlb *TLB) handleTranslationMiss(
 	now sim.VTimeInSec,
 	req *vm.TranslationReq,
@@ -350,12 +426,16 @@ func (tlb *TLB) handleTranslationMiss(
 	}
 
 	if tlb.mshr.IsFull() {
+		translationtrace.BeginStage(req.ID, "iommutlb_mshr_wait", now)
 		return false
 	}
+	translationtrace.EndStage(req.ID, "iommutlb_mshr_wait", now)
 
 	if tlb.mshr.IsEntryFull(req.PID, req.VAddr) {
+		translationtrace.BeginStage(req.ID, "iommutlb_mshr_entry_wait", now)
 		return false
 	}
+	translationtrace.EndStage(req.ID, "iommutlb_mshr_entry_wait", now)
 
 	fetched := tlb.fetchBottom(now, req)
 	if fetched {
@@ -405,6 +485,33 @@ func (tlb *TLB) vAddrToSetID(vAddr uint64) (setID int) {
 	return int(vAddr / tlb.pageSize % uint64(tlb.numSets))
 }
 
+func (tlb *TLB) ptclVAddrToSetID(pid vm.PID, baseVAddr uint64) (setID int) {
+	if tlb.numSets <= 0 {
+		return 0
+	}
+
+	ptclID := baseVAddr >> (tlb.log2PageSize + 3)
+	shift := uint(0)
+	for (1 << shift) < tlb.numSets {
+		shift++
+	}
+
+	pidHash := uint64(pid) ^ (uint64(pid) >> shift)
+	hashed := ptclID ^ (ptclID >> shift) ^ pidHash
+	if tlb.numSets&(tlb.numSets-1) == 0 {
+		return int(hashed & uint64(tlb.numSets-1))
+	}
+
+	return int(hashed % uint64(tlb.numSets))
+}
+
+func (tlb *TLB) usePTCLSetLookup(req *vm.TranslationReq) bool {
+	return req != nil &&
+		tlb.setAsLineTLBEnabled &&
+		!tlb.vpnMSHRBaseline &&
+		!tlb.demandPTEOnly
+}
+
 func (tlb *TLB) sendRspToTop(
 	now sim.VTimeInSec,
 	req *vm.TranslationReq,
@@ -441,8 +548,10 @@ func (tlb *TLB) processTLBMSHRHit(
 	req *vm.TranslationReq,
 ) bool {
 	if tlb.mshr.IsEntryFull(req.PID, req.VAddr) {
+		translationtrace.BeginStage(req.ID, "iommutlb_mshr_entry_wait", now)
 		return false
 	}
+	translationtrace.EndStage(req.ID, "iommutlb_mshr_entry_wait", now)
 
 	requestBitmap := tlb.normalizeBitmap(req)
 	toIssue := tlb.subtractBitmaps(requestBitmap, mshrEntry.IssuedBitMap)
@@ -511,25 +620,15 @@ func (tlb *TLB) handleRsp(now sim.VTimeInSec, rsp *vm.TranslationRsp) bool {
 
 	mshrEntryPresent := tlb.mshr.IsEntryPresent(rsp.Page.PID, rsp.Page.VAddr)
 	if !mshrEntryPresent {
-		setID := tlb.vAddrToSetID(page.VAddr)
-		set := tlb.Sets[setID]
-		wayID, ok := tlb.Sets[setID].Evict()
-		if !ok {
+		if !tlb.installPage(page) {
 			panic("failed to evict")
 		}
-		set.Update(wayID, page)
-		set.Visit(wayID)
 		return true
 	}
 
-	setID := tlb.vAddrToSetID(page.VAddr)
-	set := tlb.Sets[setID]
-	wayID, ok := tlb.Sets[setID].Evict()
-	if !ok {
+	if !tlb.installPage(page) {
 		panic("failed to evict")
 	}
-	set.Update(wayID, page)
-	set.Visit(wayID)
 
 	tlb.mshr.UpdatePage(rsp.Page.PID, rsp.Page.VAddr, page)
 	tlb.mshr.UpdateResponseBitMap(rsp.Page.PID, rsp.Page.VAddr)
@@ -552,15 +651,9 @@ func (tlb *TLB) handlePrefetchRsp(
 	rsp *vm.TranslationRsp,
 ) bool {
 	page := rsp.Page
-	setID := tlb.vAddrToSetID(page.VAddr)
-	set := tlb.Sets[setID]
-	wayID, ok := tlb.Sets[setID].Evict()
-	if !ok {
+	if !tlb.installPage(page) {
 		panic("failed to evict")
 	}
-
-	set.Update(wayID, page)
-	set.Visit(wayID)
 
 	if rsp.OriginPort == nil {
 		panic("prefetch response has nil origin port")
@@ -598,6 +691,69 @@ func (tlb *TLB) handlePrefetchRsp(
 func (tlb *TLB) visit(setID, wayID int) {
 	set := tlb.Sets[setID]
 	set.Visit(wayID)
+}
+
+func (tlb *TLB) installPage(page vm.Page) bool {
+	if tlb.setAsLineTLBEnabled && !tlb.vpnMSHRBaseline && !tlb.demandPTEOnly {
+		baseVAddr := tlb.getBaseVaddr(page.VAddr)
+		bit := int((page.VAddr - baseVAddr) >> tlb.log2PageSize)
+		if bit < 0 || bit >= 8 {
+			return false
+		}
+
+		pages := [8]vm.Page{}
+		bitmap := [8]bool{}
+		pages[bit] = page
+		bitmap[bit] = true
+		return tlb.installBitmapPages(page.PID, baseVAddr, pages, bitmap)
+	}
+
+	setID := tlb.vAddrToSetID(page.VAddr)
+	set := tlb.Sets[setID]
+	wayID, ok := tlb.Sets[setID].Evict()
+	if !ok {
+		return false
+	}
+	set.Update(wayID, page)
+	set.Visit(wayID)
+	return true
+}
+
+func (tlb *TLB) installBitmapPages(
+	pid vm.PID,
+	baseVAddr uint64,
+	pages [8]vm.Page,
+	bitmap [8]bool,
+) bool {
+	if tlb.isBitmapZero(bitmap) {
+		return false
+	}
+
+	if tlb.setAsLineTLBEnabled && !tlb.vpnMSHRBaseline && !tlb.demandPTEOnly {
+		setID := tlb.ptclVAddrToSetID(pid, baseVAddr)
+		ptclSet, ok := tlb.Sets[setID].(internal.PTCLSet)
+		if !ok {
+			return false
+		}
+
+		result := ptclSet.FillPTCL(pid, baseVAddr, pages, bitmap, tlb.pageSize)
+		if result.Installed {
+			tlb.setFills++
+		}
+		if result.ConflictEvicted {
+			tlb.setConflictEvictions++
+		}
+		return result.Installed
+	}
+
+	installed := false
+	for i := 0; i < 8; i++ {
+		if !bitmap[i] || !pages[i].Valid {
+			continue
+		}
+		installed = tlb.installPage(pages[i]) || installed
+	}
+	return installed
 }
 
 func (tlb *TLB) prefetchOutcomeState(pageBlock uint64) *prefetchOutcomeCounts {
@@ -958,6 +1114,8 @@ func (tlb *TLB) issueBottomReqs(
 		return nil, false
 	}
 
+	translationtrace.LinkRequest(reqToBottom.ID, req.ID)
+	translationtrace.RecordIOMMUToMMU(now)
 	tlb.downstreamReqCount++
 
 	return reqToBottom, true
@@ -1305,11 +1463,21 @@ func (tlb *TLB) setLookupReadyTime(
 	if lookupBits <= 0 {
 		lookupBits = 1
 	}
+	if tlb.usePTCLSetLookup(req) {
+		lookupBits = 1
+	}
 
 	tlb.lookupReadyTimes[req.ID] = tlb.Freq.NCyclesLater(
 		tlb.lookupLatencyCycles*lookupBits,
 		now,
 	)
+	if !req.IsPrefetch {
+		translationtrace.AddStageCycles(
+			req.ID,
+			"iommutlb_lookup_service",
+			uint64(tlb.lookupLatencyCycles*lookupBits),
+		)
+	}
 }
 
 func (tlb *TLB) isLookupReady(

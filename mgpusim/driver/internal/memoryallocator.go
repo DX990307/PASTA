@@ -233,7 +233,6 @@ func (a *memoryAllocatorImpl) selectActualGPUForDistributedPage(
 	return device.ActualGPUs[gpuIndex]
 }
 
-
 // func (a *memoryAllocatorImpl) allocatePages(
 // 	numPages int,
 // 	pid vm.PID,

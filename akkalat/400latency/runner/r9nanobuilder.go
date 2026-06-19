@@ -97,8 +97,8 @@ type R9NanoGPUBuilder struct {
 func MakeR9NanoGPUBuilder() R9NanoGPUBuilder {
 	b := R9NanoGPUBuilder{
 		freq:                           1 * sim.GHz,
-		numShaderArray:                 8,
-		numCUPerShaderArray:            4,
+		numShaderArray:                 6,
+		numCUPerShaderArray:            5,
 		numMemoryBank:                  16,
 		log2CacheLineSize:              6,
 		log2PageSize:                   12,
@@ -616,8 +616,8 @@ func (b *R9NanoGPUBuilder) buildGMMUCache() {
 		WithEngine(b.engine).
 		WithFreq(b.freq).
 		WithNumWays(16).
-		WithNumSets(32).
-		WithNumMSHREntry(32).
+		WithNumSets(64).
+		WithNumMSHREntry(16).
 		WithNumReqPerCycle(32).
 		WithPageSize(1<<b.log2PageSize).
 		WithLowModule(b.gmmu.GetPortByName("Top")).
@@ -629,6 +629,9 @@ func (b *R9NanoGPUBuilder) buildGMMUCache() {
 		WithInitialPTCLMode(*gmmuInitialPTCLMode).
 		WithPerVPNMSHRBaseline(*gmmuVPNMSHRBaseline).
 		WithPTELookupLatencyCycles(*gmmuPTELookupLatency).
+		WithPTCLSerialLookup(*gmmuPTCLSerialLookup).
+		WithFlexTLB(*gmmuFlexTLB).
+		WithFlexPromotionThreshold(*gmmuFlexPromotionThreshold).
 		WithLocalPTWStateProvider(b.gmmu).
 		WithTranslationPrefetcher(*gmmuPrefetch).
 		WithPrefetchAdmissionThreshold(*gmmuPrefetchAdmission).

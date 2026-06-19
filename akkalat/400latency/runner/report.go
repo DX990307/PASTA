@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/sarchlab/akita/v3/mem/vm/translationtrace"
 	"github.com/sarchlab/mgpusim/v3/timing/cu"
 )
 
@@ -31,6 +32,9 @@ func (r *Runner) reportStats() {
 	// r.reportGMMUCounts()
 	// r.reportGMMUCacheCounts()
 	r.dumpMetrics()
+	if err := translationtrace.Dump(); err != nil {
+		panic(err)
+	}
 }
 
 func (r *Runner) reportInstCount() {
@@ -295,12 +299,20 @@ func (r *Runner) reportGMMUCacheHitRate() {
 		toPTCL, toPTE := tracer.gmmuCache.ModeSwitchCounts()
 		pteModeCompletions, ptclModeCompletions :=
 			tracer.gmmuCache.ModeCompletionCounts()
+		ptclSetModeFlushes := tracer.gmmuCache.PTCLSetModeFlushes()
 		totalDownstream, localDownstream, iommuDownstream :=
 			tracer.gmmuCache.DownstreamRequestCounts()
 		pteLookupDelayCount, pteLookupDelayCycles :=
 			tracer.gmmuCache.PTELookupDelayStats()
 		pteLookupMaxInflight, pteLookupMaxWaiting :=
 			tracer.gmmuCache.PTELookupQueueStats()
+		flexEnabled, flexPromotionThreshold, flexPTEPackEntries,
+			flexPTCLLineEntries, flexLookupJobs, flexRequestedBits,
+			flexHitBits, flexMissBits, flexSavedJobs, flexPTEPackHits,
+			flexPTCLLineHits, flexPartialPTCLHits, flexFullPTCLHits,
+			flexPromotions, flexDemotions, flexInvalidatedPTEPackSlots,
+			flexEvictedValidSlotsForPTCL, flexSets, flexWays, flexPTESlots :=
+			tracer.gmmuCache.FlexTLBStats()
 		prefetchEnabled, _, generated, enqueued, dropped, rejectedByPrefix,
 			rejectedByDuplicate, rejectedByInvalid, rejectedByIOMMUFallbackGate,
 			noClearPatternSkips, admitted, _ :=
@@ -323,6 +335,10 @@ func (r *Runner) reportGMMUCacheHitRate() {
 		prefetchEnabledFloat := 0.0
 		if prefetchEnabled {
 			prefetchEnabledFloat = 1.0
+		}
+		flexEnabledFloat := 0.0
+		if flexEnabled {
+			flexEnabledFloat = 1.0
 		}
 		prefetchDisabledByFeedbackFloat := 0.0
 		if prefetchDisabledByFeedback {
@@ -365,6 +381,11 @@ func (r *Runner) reportGMMUCacheHitRate() {
 		)
 		r.metricsCollector.Collect(
 			tracer.gmmuCache.Name(),
+			"ptcl_set_mode_flushes",
+			float64(ptclSetModeFlushes),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
 			"downstream_req_count",
 			float64(totalDownstream),
 		)
@@ -403,6 +424,94 @@ func (r *Runner) reportGMMUCacheHitRate() {
 			"pte_lookup_waiting_max_len",
 			float64(pteLookupMaxWaiting),
 		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(), "flex_tlb_enabled", flexEnabledFloat)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"flex_promotion_threshold",
+			float64(flexPromotionThreshold),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"flex_pte_pack_entries",
+			float64(flexPTEPackEntries),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"flex_ptcl_line_entries",
+			float64(flexPTCLLineEntries),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"flex_lookup_jobs",
+			float64(flexLookupJobs),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"flex_lookup_requested_bits",
+			float64(flexRequestedBits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"flex_lookup_hit_bits",
+			float64(flexHitBits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"flex_lookup_miss_bits",
+			float64(flexMissBits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"flex_lookup_saved_jobs",
+			float64(flexSavedJobs),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"flex_pte_pack_hits",
+			float64(flexPTEPackHits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"flex_ptcl_line_hits",
+			float64(flexPTCLLineHits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"flex_partial_ptcl_hits",
+			float64(flexPartialPTCLHits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"flex_full_ptcl_hits",
+			float64(flexFullPTCLHits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"flex_promotions",
+			float64(flexPromotions),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"flex_demotions",
+			float64(flexDemotions),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"flex_invalidated_pte_pack_slots",
+			float64(flexInvalidatedPTEPackSlots),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"flex_evicted_valid_slots_for_ptcl_line",
+			float64(flexEvictedValidSlotsForPTCL),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(), "flex_num_sets", float64(flexSets))
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(), "flex_num_ways", float64(flexWays))
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(), "flex_pte_slot_capacity", float64(flexPTESlots))
 		r.metricsCollector.Collect(
 			tracer.gmmuCache.Name(), "prefetch_enabled", prefetchEnabledFloat)
 		r.metricsCollector.Collect(
@@ -622,9 +731,16 @@ func (r *Runner) reportIOMMUTLBStats() {
 		r.platform.IOMMUTLB.PrefetchStats()
 	completed, useful, late, lostBeforeUse := r.platform.IOMMUTLB.PrefetchOutcomeStats()
 	blockStats := r.platform.IOMMUTLB.PrefetchBlockStats()
+	setAsLineEnabled, setLookupJobs, setRequestedBits, setHitBits, setMissBits,
+		setSavedJobs, setFills, setConflictEvictions, setLineEntries :=
+		r.platform.IOMMUTLB.SetAsLineStats()
 	prefetchEnabledFloat := 0.0
 	if prefetchEnabled {
 		prefetchEnabledFloat = 1.0
+	}
+	setAsLineEnabledFloat := 0.0
+	if setAsLineEnabled {
+		setAsLineEnabledFloat = 1.0
 	}
 	demandPTCLReturnFloat := 0.0
 	if demandPTCLReturn {
@@ -663,6 +779,51 @@ func (r *Runner) reportIOMMUTLBStats() {
 		r.platform.IOMMUTLB.Name(),
 		"lookup_latency_cycles_per_bit",
 		float64(r.platform.IOMMUTLB.LookupLatencyCycles()),
+	)
+	r.metricsCollector.Collect(
+		r.platform.IOMMUTLB.Name(),
+		"iotlb_set_as_line_enabled",
+		setAsLineEnabledFloat,
+	)
+	r.metricsCollector.Collect(
+		r.platform.IOMMUTLB.Name(),
+		"iotlb_set_lookup_jobs",
+		float64(setLookupJobs),
+	)
+	r.metricsCollector.Collect(
+		r.platform.IOMMUTLB.Name(),
+		"iotlb_set_lookup_requested_bits",
+		float64(setRequestedBits),
+	)
+	r.metricsCollector.Collect(
+		r.platform.IOMMUTLB.Name(),
+		"iotlb_set_lookup_hit_bits",
+		float64(setHitBits),
+	)
+	r.metricsCollector.Collect(
+		r.platform.IOMMUTLB.Name(),
+		"iotlb_set_lookup_miss_bits",
+		float64(setMissBits),
+	)
+	r.metricsCollector.Collect(
+		r.platform.IOMMUTLB.Name(),
+		"iotlb_set_lookup_saved_jobs",
+		float64(setSavedJobs),
+	)
+	r.metricsCollector.Collect(
+		r.platform.IOMMUTLB.Name(),
+		"iotlb_set_fills",
+		float64(setFills),
+	)
+	r.metricsCollector.Collect(
+		r.platform.IOMMUTLB.Name(),
+		"iotlb_set_conflict_evictions",
+		float64(setConflictEvictions),
+	)
+	r.metricsCollector.Collect(
+		r.platform.IOMMUTLB.Name(),
+		"iotlb_set_line_entries",
+		float64(setLineEntries),
 	)
 	r.metricsCollector.Collect(
 		r.platform.IOMMUTLB.Name(),
