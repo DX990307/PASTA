@@ -605,12 +605,6 @@ func (b *R9NanoPlatformBuilder) createIOMMUTLB(
 		WithDemandPTEOnly(*mmutlbDemandPTEOnly).
 		WithSetAsLineTLB(*mmutlbFlexTLB).
 		WithLookupLatencyCycles(*mmutlbPTCLReturnLatency).
-		WithTranslationPrefetcher(*mmutlbPrefetch).
-		WithPrefetchDemandPTCLReturn(*mmutlbPrefetchDemandPTCLReturn).
-		WithPrefetchAdmissionThreshold(*mmutlbPrefetchAdmission).
-		WithPrefetchMaxLearners(*mmutlbPrefetchMaxLearners).
-		WithPrefetchLookahead(*mmutlbPrefetchLookahead).
-		WithPrefetchMaxCandidatesPerReq(*mmutlbPrefetchMaxCandidates).
 		Build(name)
 
 	// b.mmuTopModule = b.IOMMUTLB.GetPortByName("Bottom")

@@ -6,11 +6,19 @@ import (
 	"github.com/sarchlab/akita/v3/sim"
 )
 
+// PTWStateProvider exposes downstream page-walk occupancy to the GMMU L2 TLB.
+type PTWStateProvider interface {
+	HasFreePTW() bool
+	PTWInflight() int
+	PTWCapacity() int
+}
+
 // A Builder can build TLBs
 type Builder struct {
 	engine         sim.Engine
 	freq           sim.Freq
 	numReqPerCycle int
+	pteLookupSlots int
 	numSets        int
 	numWays        int
 	pageSize       uint64
@@ -31,15 +39,12 @@ type Builder struct {
 	initialPTCL            bool
 	perVPNMSHR             bool
 	flexTLBEnabled         bool
+	flexPCDWays            int
 	flexPromotionThreshold int
 	ptclSerialLookup       bool
 	pteLookupLatencyCycles int
-	prefetchEnabled        bool
-	prefetchAdmission      int
-	prefetchMaxLearners    int
-	prefetchLookahead      int
-	prefetchMaxCandidates  int
-	localPTWState          PTWStateProvider
+	idleIOMMUAssistEnabled bool
+	sharedPTWState         PTWStateProvider
 }
 
 // MakeBuilder returns a Builder
@@ -56,15 +61,16 @@ func MakeBuilder() Builder {
 		initialPTCL:            false,
 		flexPromotionThreshold: 3,
 		pteLookupLatencyCycles: 32,
-		prefetchAdmission:      3,
-		prefetchMaxLearners:    4,
-		prefetchLookahead:      64,
-		prefetchMaxCandidates:  4,
 	}
 }
 
 func (b Builder) WithFlexTLB(enabled bool) Builder {
 	b.flexTLBEnabled = enabled
+	return b
+}
+
+func (b Builder) WithFlexPCDWays(ways int) Builder {
+	b.flexPCDWays = ways
 	return b
 }
 
@@ -104,33 +110,18 @@ func (b Builder) WithPTELookupLatencyCycles(cycles int) Builder {
 	return b
 }
 
-func (b Builder) WithTranslationPrefetcher(enabled bool) Builder {
-	b.prefetchEnabled = enabled
+func (b Builder) WithPTELookupSlots(slots int) Builder {
+	b.pteLookupSlots = slots
 	return b
 }
 
-func (b Builder) WithPrefetchAdmissionThreshold(threshold int) Builder {
-	b.prefetchAdmission = threshold
+func (b Builder) WithIdleIOMMUAssist(enabled bool) Builder {
+	b.idleIOMMUAssistEnabled = enabled
 	return b
 }
 
-func (b Builder) WithPrefetchMaxLearners(maxLearners int) Builder {
-	b.prefetchMaxLearners = maxLearners
-	return b
-}
-
-func (b Builder) WithPrefetchLookahead(lookahead int) Builder {
-	b.prefetchLookahead = lookahead
-	return b
-}
-
-func (b Builder) WithPrefetchMaxCandidatesPerReq(limit int) Builder {
-	b.prefetchMaxCandidates = limit
-	return b
-}
-
-func (b Builder) WithLocalPTWStateProvider(provider PTWStateProvider) Builder {
-	b.localPTWState = provider
+func (b Builder) WithSharedPTWStateProvider(provider PTWStateProvider) Builder {
+	b.sharedPTWState = provider
 	return b
 }
 
@@ -237,6 +228,10 @@ func (b Builder) Build(name string) *GMMUTLB {
 	tlb.numSets = b.numSets
 	tlb.numWays = b.numWays
 	tlb.numReqPerCycle = b.numReqPerCycle
+	tlb.pteLookupSlotLimit = b.pteLookupSlots
+	if tlb.pteLookupSlotLimit <= 0 {
+		tlb.pteLookupSlotLimit = b.numReqPerCycle
+	}
 	tlb.pageSize = b.pageSize
 	tlb.LowModule = b.lowModule
 	tlb.mshr = newMSHR(b.numMSHREntry, 64, b.log2PageSize, b.perVPNMSHR)
@@ -245,19 +240,13 @@ func (b Builder) Build(name string) *GMMUTLB {
 	tlb.IOMMUPort = b.ioMMUPort
 	tlb.vpnMSHRBaseline = b.perVPNMSHR
 	tlb.flexTLBEnabled = b.flexTLBEnabled
+	tlb.flexPCDWays = b.flexPCDWays
 	tlb.flexPromotionThreshold = b.flexPromotionThreshold
 	tlb.ptclSerialLookup = b.ptclSerialLookup
 	tlb.gmmuCacheTable = b.gmmuCacheTable
-	tlb.localPTWState = b.localPTWState
 	tlb.pteLookupLatencyCycles = b.pteLookupLatencyCycles
-	tlb.prefetcher = newTranslationPrefetcher(
-		b.prefetchEnabled,
-		b.prefetchAdmission,
-		b.prefetchMaxLearners,
-		b.prefetchLookahead,
-		b.prefetchMaxCandidates,
-	)
-	tlb.initPrefetchState()
+	tlb.idleIOMMUAssistEnabled = b.idleIOMMUAssistEnabled
+	tlb.sharedPTWState = b.sharedPTWState
 	lowThres := b.ptclLowThres
 	highThres := b.ptclHighThres
 	if lowThres > highThres {

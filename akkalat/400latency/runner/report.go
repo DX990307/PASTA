@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
@@ -306,6 +305,9 @@ func (r *Runner) reportGMMUCacheHitRate() {
 			tracer.gmmuCache.PTELookupDelayStats()
 		pteLookupMaxInflight, pteLookupMaxWaiting :=
 			tracer.gmmuCache.PTELookupQueueStats()
+		idleAssistEnabled, idleAssistIssued, idleAssistBlockedBusy,
+			idleAssistLocalFallback :=
+			tracer.gmmuCache.IdleIOMMUAssistStats()
 		flexEnabled, flexPromotionThreshold, flexPTEPackEntries,
 			flexPTCLLineEntries, flexLookupJobs, flexRequestedBits,
 			flexHitBits, flexMissBits, flexSavedJobs, flexPTEPackHits,
@@ -313,40 +315,21 @@ func (r *Runner) reportGMMUCacheHitRate() {
 			flexPromotions, flexDemotions, flexInvalidatedPTEPackSlots,
 			flexEvictedValidSlotsForPTCL, flexSets, flexWays, flexPTESlots :=
 			tracer.gmmuCache.FlexTLBStats()
-		prefetchEnabled, _, generated, enqueued, dropped, rejectedByPrefix,
-			rejectedByDuplicate, rejectedByInvalid, rejectedByIOMMUFallbackGate,
-			noClearPatternSkips, admitted, _ :=
-			tracer.gmmuCache.PrefetchStats()
-		prefetchCompleted, prefetchUseful, prefetchLate, prefetchLost :=
-			tracer.gmmuCache.PrefetchOutcomeStats()
-		prefetchLateQueued, prefetchLateInflight, prefetchRedundantFill,
-			prefetchServedOutstandingDemand, prefetchUnusedResident :=
-			tracer.gmmuCache.PrefetchDiagnosisStats()
-		prefetchDemandLatency, prefetchLocalLatency, prefetchRemoteLatency,
-			prefetchLookahead, prefetchQueueLen, prefetchIssued,
-			prefetchBlockedByPTW, prefetchIOMMUFallbacks :=
-			tracer.gmmuCache.PrefetchAdaptiveStats()
-		prefetchDisabledBlocks, prefetchRejectedByFeedback, prefetchDisabledByFeedback :=
-			tracer.gmmuCache.PrefetchFeedbackStats()
 		ptclModeEnabled := 0.0
 		if tracer.gmmuCache.PTCLModeEnabled() {
 			ptclModeEnabled = 1.0
-		}
-		prefetchEnabledFloat := 0.0
-		if prefetchEnabled {
-			prefetchEnabledFloat = 1.0
 		}
 		flexEnabledFloat := 0.0
 		if flexEnabled {
 			flexEnabledFloat = 1.0
 		}
-		prefetchDisabledByFeedbackFloat := 0.0
-		if prefetchDisabledByFeedback {
-			prefetchDisabledByFeedbackFloat = 1.0
-		}
 		vpnMSHRBaselineEnabled := 0.0
 		if tracer.gmmuCache.VPNMSHRBaselineEnabled() {
 			vpnMSHRBaselineEnabled = 1.0
+		}
+		idleAssistEnabledFloat := 0.0
+		if idleAssistEnabled {
+			idleAssistEnabledFloat = 1.0
 		}
 
 		r.metricsCollector.Collect(
@@ -401,8 +384,38 @@ func (r *Runner) reportGMMUCacheHitRate() {
 		)
 		r.metricsCollector.Collect(
 			tracer.gmmuCache.Name(),
+			"idle_iommu_assist_enabled",
+			idleAssistEnabledFloat,
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"idle_iommu_assist_issued",
+			float64(idleAssistIssued),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"idle_iommu_assist_blocked_busy",
+			float64(idleAssistBlockedBusy),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"idle_iommu_assist_local_fallback",
+			float64(idleAssistLocalFallback),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
 			"lookup_latency_cycles_per_pte",
 			float64(tracer.gmmuCache.PTELookupLatencyCycles()),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"num_req_per_cycle",
+			float64(*gmmuNumReqPerCycle),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"pte_lookup_slot_limit",
+			float64(tracer.gmmuCache.PTELookupSlotLimit()),
 		)
 		r.metricsCollector.Collect(
 			tracer.gmmuCache.Name(),
@@ -512,153 +525,6 @@ func (r *Runner) reportGMMUCacheHitRate() {
 			tracer.gmmuCache.Name(), "flex_num_ways", float64(flexWays))
 		r.metricsCollector.Collect(
 			tracer.gmmuCache.Name(), "flex_pte_slot_capacity", float64(flexPTESlots))
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(), "prefetch_enabled", prefetchEnabledFloat)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_generated_candidates",
-			float64(generated),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_enqueued_candidates",
-			float64(enqueued),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_dropped_candidates",
-			float64(dropped),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_rejected_by_prefix_filter",
-			float64(rejectedByPrefix),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_rejected_by_duplicate_filter",
-			float64(rejectedByDuplicate),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_rejected_by_invalid_target",
-			float64(rejectedByInvalid),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_rejected_by_iommu_fallback_gate",
-			float64(rejectedByIOMMUFallbackGate),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_rejected_by_feedback",
-			float64(prefetchRejectedByFeedback),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_disabled_blocks",
-			float64(prefetchDisabledBlocks),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_disabled_by_feedback",
-			prefetchDisabledByFeedbackFloat,
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_admitted_learners",
-			float64(admitted),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_no_clear_pattern_skips",
-			float64(noClearPatternSkips),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_completed_fills",
-			float64(prefetchCompleted),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_useful_hits",
-			float64(prefetchUseful),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_late_demands",
-			float64(prefetchLate),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_late_demand_queued",
-			float64(prefetchLateQueued),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_late_demand_inflight",
-			float64(prefetchLateInflight),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_redundant_fills",
-			float64(prefetchRedundantFill),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_served_outstanding_demands",
-			float64(prefetchServedOutstandingDemand),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_unused_resident_entries",
-			float64(prefetchUnusedResident),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_lost_before_use",
-			float64(prefetchLost),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_demand_translation_latency_cycles",
-			float64(prefetchDemandLatency),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_local_latency_cycles",
-			float64(prefetchLocalLatency),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_remote_latency_cycles",
-			float64(prefetchRemoteLatency),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_adaptive_lookahead",
-			float64(prefetchLookahead),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_queue_len",
-			float64(prefetchQueueLen),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_issued_candidates",
-			float64(prefetchIssued),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_blocked_by_no_free_ptw",
-			float64(prefetchBlockedByPTW),
-		)
-		r.metricsCollector.Collect(
-			tracer.gmmuCache.Name(),
-			"prefetch_iommu_fallback_candidates",
-			float64(prefetchIOMMUFallbacks),
-		)
 
 		hit := tracer.tracer.GetStepCount("hit")
 		miss := tracer.tracer.GetStepCount("miss")
@@ -726,25 +592,12 @@ func (r *Runner) reportIOMMUTLBStats() {
 		return
 	}
 
-	prefetchEnabled, demandPTCLReturn, generated, enqueued, dropped, rejectedByPrefix,
-		rejectedByDuplicate, rejectedByInvalid, noClearPatternSkips, admitted, promoted :=
-		r.platform.IOMMUTLB.PrefetchStats()
-	completed, useful, late, lostBeforeUse := r.platform.IOMMUTLB.PrefetchOutcomeStats()
-	blockStats := r.platform.IOMMUTLB.PrefetchBlockStats()
 	setAsLineEnabled, setLookupJobs, setRequestedBits, setHitBits, setMissBits,
 		setSavedJobs, setFills, setConflictEvictions, setLineEntries :=
 		r.platform.IOMMUTLB.SetAsLineStats()
-	prefetchEnabledFloat := 0.0
-	if prefetchEnabled {
-		prefetchEnabledFloat = 1.0
-	}
 	setAsLineEnabledFloat := 0.0
 	if setAsLineEnabled {
 		setAsLineEnabledFloat = 1.0
-	}
-	demandPTCLReturnFloat := 0.0
-	if demandPTCLReturn {
-		demandPTCLReturnFloat = 1.0
 	}
 
 	r.metricsCollector.Collect(
@@ -825,150 +678,6 @@ func (r *Runner) reportIOMMUTLBStats() {
 		"iotlb_set_line_entries",
 		float64(setLineEntries),
 	)
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_enabled",
-		prefetchEnabledFloat,
-	)
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_demand_ptcl_return_enabled",
-		demandPTCLReturnFloat,
-	)
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_generated_candidates",
-		float64(generated),
-	)
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_enqueued_candidates",
-		float64(enqueued),
-	)
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_dropped_candidates",
-		float64(dropped),
-	)
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_rejected_by_prefix_filter",
-		float64(rejectedByPrefix),
-	)
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_rejected_by_duplicate_filter",
-		float64(rejectedByDuplicate),
-	)
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_rejected_by_invalid_target",
-		float64(rejectedByInvalid),
-	)
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_admitted_learners",
-		float64(admitted),
-	)
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_promoted_demands",
-		float64(promoted),
-	)
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_no_clear_pattern_skips",
-		float64(noClearPatternSkips),
-	)
-	// Keep the old metric name for compatibility with existing analysis scripts.
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_pattern_resets",
-		float64(noClearPatternSkips),
-	)
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_completed_fills",
-		float64(completed),
-	)
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_useful_hits",
-		float64(useful),
-	)
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_late_demands",
-		float64(late),
-	)
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_lost_before_use",
-		float64(lostBeforeUse),
-	)
-	usefulRateByEnqueued := 0.0
-	if enqueued > 0 {
-		usefulRateByEnqueued = float64(useful) / float64(enqueued)
-	}
-	usefulRateByCompleted := 0.0
-	if completed > 0 {
-		usefulRateByCompleted = float64(useful) / float64(completed)
-	}
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_useful_rate_by_enqueued",
-		usefulRateByEnqueued,
-	)
-	r.metricsCollector.Collect(
-		r.platform.IOMMUTLB.Name(),
-		"prefetch_useful_rate_by_completed",
-		usefulRateByCompleted,
-	)
-
-	if !prefetchEnabled {
-		return
-	}
-
-	fmt.Printf(
-		"[PF][summary] component=%s enqueued=%d completed=%d useful=%d late=%d lost_before_use=%d useful_rate_enqueued=%.6f useful_rate_completed=%.6f no_clear_pattern_skips=%d\n",
-		r.platform.IOMMUTLB.Name(),
-		enqueued,
-		completed,
-		useful,
-		late,
-		lostBeforeUse,
-		usefulRateByEnqueued,
-		usefulRateByCompleted,
-		noClearPatternSkips,
-	)
-
-	for _, block := range blockStats {
-		if block.Enqueued == 0 && block.Completed == 0 && block.Useful == 0 && block.Late == 0 && block.LostBeforeUse == 0 {
-			continue
-		}
-
-		blockUsefulRateByEnqueued := 0.0
-		if block.Enqueued > 0 {
-			blockUsefulRateByEnqueued = float64(block.Useful) / float64(block.Enqueued)
-		}
-		blockUsefulRateByCompleted := 0.0
-		if block.Completed > 0 {
-			blockUsefulRateByCompleted = float64(block.Useful) / float64(block.Completed)
-		}
-
-		fmt.Printf(
-			"[PF][bo-summary] component=%s page_block=%d enqueued=%d completed=%d useful=%d late=%d lost_before_use=%d useful_rate_enqueued=%.6f useful_rate_completed=%.6f\n",
-			r.platform.IOMMUTLB.Name(),
-			block.PageBlock,
-			block.Enqueued,
-			block.Completed,
-			block.Useful,
-			block.Late,
-			block.LostBeforeUse,
-			blockUsefulRateByEnqueued,
-			blockUsefulRateByCompleted,
-		)
-	}
 }
 
 func (r *Runner) reportMMUCoalescingStats() {

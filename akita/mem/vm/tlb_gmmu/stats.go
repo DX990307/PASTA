@@ -54,6 +54,10 @@ func (tlb *GMMUTLB) PTELookupLatencyCycles() int {
 	return tlb.pteLookupLatencyCycles
 }
 
+func (tlb *GMMUTLB) PTELookupSlotLimit() int {
+	return tlb.pteLookupSlotLimit
+}
+
 // PTELookupDelayStats reports how many internal PTE lookup jobs paid the
 // GMMUCache lookup budget and the total charged slot-cycles.
 func (tlb *GMMUTLB) PTELookupDelayStats() (count int, cycles int) {
@@ -64,6 +68,24 @@ func (tlb *GMMUTLB) PTELookupDelayStats() (count int, cycles int) {
 // the maximum waiting queue length observed.
 func (tlb *GMMUTLB) PTELookupQueueStats() (maxInflight, maxWaiting int) {
 	return tlb.pteLookupMaxInflight, tlb.pteLookupMaxWaiting
+}
+
+func (tlb *GMMUTLB) IdleIOMMUAssistStats() (
+	enabled bool,
+	issued int,
+	blockedBusy int,
+	localFallback int,
+) {
+	return tlb.idleIOMMUAssistEnabled,
+		tlb.idleIOMMUAssistIssued,
+		tlb.idleIOMMUAssistBlockedBusy,
+		tlb.idleIOMMUAssistLocalFallback
+}
+
+func (tlb *GMMUTLB) resetIdleIOMMUAssistStats() {
+	tlb.idleIOMMUAssistIssued = 0
+	tlb.idleIOMMUAssistBlockedBusy = 0
+	tlb.idleIOMMUAssistLocalFallback = 0
 }
 
 func (tlb *GMMUTLB) resetFlexStats() {
@@ -120,9 +142,6 @@ func (tlb *GMMUTLB) FlexTLBStats() (
 			flexSets = tlb.pcd.numSets
 			flexWays = tlb.pcd.numWays
 			ptclLineEntries = tlb.pcd.validEntryCount()
-		} else {
-			flexSets = tlb.numSets
-			flexWays = tlb.numWays
 		}
 	}
 
@@ -146,104 +165,4 @@ func (tlb *GMMUTLB) FlexTLBStats() (
 		flexSets,
 		flexWays,
 		flexPTESlots
-}
-
-// PrefetchStats reports whether the GMMU-side prefetcher is enabled and how
-// many candidates it generated, issued, or rejected.
-func (tlb *GMMUTLB) PrefetchStats() (
-	enabled bool,
-	demandPTCLReturn bool,
-	generated int,
-	enqueued int,
-	dropped int,
-	rejectedByPrefix int,
-	rejectedByDuplicate int,
-	rejectedByInvalid int,
-	rejectedByIOMMUFallbackGate int,
-	noClearPatternSkips int,
-	admitted int,
-	promoted int,
-) {
-	if tlb.prefetcher == nil {
-		return false, false, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-	}
-
-	return tlb.prefetcher.enabled,
-		false,
-		tlb.prefetcher.generatedCandidates,
-		tlb.prefetcher.enqueuedCandidates,
-		tlb.prefetcher.droppedCandidates,
-		tlb.prefetcher.rejectedByPrefix,
-		tlb.prefetcher.rejectedByDuplicate,
-		tlb.prefetcher.rejectedByInvalid,
-		tlb.prefetcher.rejectedByIOMMUFallbackGate,
-		tlb.prefetcher.noClearPatternSkips,
-		tlb.prefetcher.admittedLearnersCount,
-		0
-}
-
-// PrefetchOutcomeStats reports the observed completion count for GMMU-side
-// prefetches. Useful/late/lost are kept for metric compatibility.
-func (tlb *GMMUTLB) PrefetchOutcomeStats() (
-	completed int,
-	useful int,
-	late int,
-	lostBeforeUse int,
-) {
-	return tlb.prefetchCompletedCount,
-		tlb.prefetchUsefulCount,
-		tlb.prefetchLateDemandCount,
-		tlb.prefetchLostCount
-}
-
-func (tlb *GMMUTLB) PrefetchDiagnosisStats() (
-	lateDemandQueued int,
-	lateDemandInflight int,
-	redundantFill int,
-	servedOutstandingDemand int,
-	unusedResident int,
-) {
-	return tlb.prefetchLateDemandQueuedCount,
-		tlb.prefetchLateDemandInflightCount,
-		tlb.prefetchRedundantFillCount,
-		tlb.prefetchServedDemandCount,
-		len(tlb.prefetchedResident)
-}
-
-func (tlb *GMMUTLB) PrefetchAdaptiveStats() (
-	demandLatencyCycles int,
-	localPrefetchLatencyCycles int,
-	remotePrefetchLatencyCycles int,
-	currentLookahead int,
-	queueLen int,
-	issued int,
-	blockedByNoFreePTW int,
-	iommuFallbacks int,
-) {
-	if tlb.prefetcher == nil {
-		return 0, 0, 0, 0, 0, 0, 0, 0
-	}
-
-	return tlb.prefetcher.demandLatencyCycles,
-		tlb.prefetcher.localPrefetchLatencyCycles,
-		tlb.prefetcher.remotePrefetchLatencyCycles,
-		tlb.prefetcher.currentLookahead,
-		len(tlb.prefetchQueue),
-		tlb.prefetcher.issuedCandidates,
-		tlb.prefetcher.blockedByNoFreePTW,
-		tlb.prefetcher.iommuFallbackCandidates
-}
-
-func (tlb *GMMUTLB) PrefetchFeedbackStats() (
-	disabledBlocks int,
-	rejectedByFeedback int,
-	disabledByFeedback bool,
-) {
-	if tlb.prefetcher == nil {
-		return 0, 0, false
-	}
-
-	return len(tlb.prefetchDisabledBlocks),
-		tlb.prefetcher.rejectedByFeedback,
-		false
 }

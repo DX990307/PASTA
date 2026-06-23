@@ -3,15 +3,11 @@ package tlb_gmmu
 import "github.com/sarchlab/akita/v3/mem/vm"
 
 type pcdLocator struct {
-	valid bool
-	setID int
 	wayID int
 }
 
 type pcdEntry struct {
 	valid         bool
-	pid           vm.PID
-	baseVAddr     uint64
 	presentBitmap [8]bool
 	locators      [8]pcdLocator
 	lastVisit     uint64
@@ -34,6 +30,7 @@ type ptclCoverageDirectory struct {
 func newPTCLCoverageDirectory(
 	numSets int,
 	numWays int,
+	metadataWaysOverride int,
 	log2PageSize uint64,
 ) *ptclCoverageDirectory {
 	if numSets <= 0 {
@@ -42,7 +39,10 @@ func newPTCLCoverageDirectory(
 	if numWays <= 0 {
 		numWays = 1
 	}
-	metadataWays := (numWays + 7) / 8
+	metadataWays := metadataWaysOverride
+	if metadataWays <= 0 {
+		metadataWays = (numWays + 7) / 8
+	}
 	if metadataWays <= 0 {
 		metadataWays = 1
 	}
@@ -91,17 +91,25 @@ func (d *ptclCoverageDirectory) setID(pid vm.PID, baseVAddr uint64) int {
 	return int(hashed % uint64(d.numSets))
 }
 
-func (d *ptclCoverageDirectory) lookupEntry(
+func (d *ptclCoverageDirectory) setForLine(
 	pid vm.PID,
 	baseVAddr uint64,
+) *pcdSet {
+	return &d.sets[d.setID(pid, baseVAddr)]
+}
+
+func (d *ptclCoverageDirectory) findEntryForLine(
+	pid vm.PID,
+	baseVAddr uint64,
+	matches func(*pcdEntry) bool,
 ) (*pcdEntry, bool) {
-	set := &d.sets[d.setID(pid, baseVAddr)]
+	set := d.setForLine(pid, baseVAddr)
 	for i := range set.entries {
 		entry := &set.entries[i]
 		if !entry.valid {
 			continue
 		}
-		if entry.pid == pid && entry.baseVAddr == baseVAddr {
+		if matches(entry) {
 			d.visit(entry)
 			return entry, true
 		}
@@ -114,15 +122,11 @@ func (d *ptclCoverageDirectory) findOrAllocateEntry(
 	pid vm.PID,
 	baseVAddr uint64,
 ) *pcdEntry {
-	if entry, found := d.lookupEntry(pid, baseVAddr); found {
-		return entry
-	}
-
-	set := &d.sets[d.setID(pid, baseVAddr)]
+	set := d.setForLine(pid, baseVAddr)
 	for i := range set.entries {
 		entry := &set.entries[i]
 		if !entry.valid {
-			d.initializeEntry(entry, pid, baseVAddr)
+			d.initializeEntry(entry)
 			return entry
 		}
 	}
@@ -135,19 +139,13 @@ func (d *ptclCoverageDirectory) findOrAllocateEntry(
 	}
 
 	d.entryEvictions++
-	d.initializeEntry(victim, pid, baseVAddr)
+	d.initializeEntry(victim)
 	return victim
 }
 
-func (d *ptclCoverageDirectory) initializeEntry(
-	entry *pcdEntry,
-	pid vm.PID,
-	baseVAddr uint64,
-) {
+func (d *ptclCoverageDirectory) initializeEntry(entry *pcdEntry) {
 	*entry = pcdEntry{
-		valid:     true,
-		pid:       pid,
-		baseVAddr: baseVAddr,
+		valid: true,
 	}
 	d.visit(entry)
 }
@@ -157,33 +155,30 @@ func (d *ptclCoverageDirectory) visit(entry *pcdEntry) {
 	entry.lastVisit = d.visitCounter
 }
 
-func (d *ptclCoverageDirectory) recordFill(
+func (d *ptclCoverageDirectory) recordFillInEntry(
+	entry *pcdEntry,
 	page vm.Page,
-	setID int,
 	wayID int,
 ) {
-	if !page.Valid {
+	if entry == nil || !entry.valid || !page.Valid {
 		return
 	}
 
-	baseVAddr := d.baseVAddr(page.VAddr)
 	bit := d.bit(page.VAddr)
 	if bit < 0 || bit >= 8 {
 		return
 	}
 
-	entry := d.findOrAllocateEntry(page.PID, baseVAddr)
 	entry.presentBitmap[bit] = true
 	entry.locators[bit] = pcdLocator{
-		valid: true,
-		setID: setID,
 		wayID: wayID,
 	}
+	d.visit(entry)
 }
 
 func (d *ptclCoverageDirectory) removePage(
 	page vm.Page,
-	setID int,
+	_ int,
 	wayID int,
 ) {
 	if !page.Valid {
@@ -196,30 +191,23 @@ func (d *ptclCoverageDirectory) removePage(
 		return
 	}
 
-	entry, found := d.lookupEntry(page.PID, baseVAddr)
-	if !found {
-		return
-	}
-
-	locator := entry.locators[bit]
-	if locator.valid && locator.setID == setID && locator.wayID == wayID {
-		d.clearBit(entry, bit)
+	set := d.setForLine(page.PID, baseVAddr)
+	for i := range set.entries {
+		entry := &set.entries[i]
+		if !entry.valid {
+			continue
+		}
+		locator := entry.locators[bit]
+		if entry.presentBitmap[bit] && locator.wayID == wayID {
+			d.clearBit(entry, bit)
+		}
 	}
 }
 
 func (d *ptclCoverageDirectory) invalidatePage(pid vm.PID, vAddr uint64) {
-	baseVAddr := d.baseVAddr(vAddr)
-	bit := d.bit(vAddr)
-	if bit < 0 || bit >= 8 {
-		return
-	}
-
-	entry, found := d.lookupEntry(pid, baseVAddr)
-	if !found {
-		return
-	}
-
-	d.clearBit(entry, bit)
+	// Tagless locator rows cannot identify a line by metadata alone. Precise
+	// invalidation happens through removePage when the matching TLB way is known;
+	// otherwise stale locators are filtered by PTE tag validation on lookup.
 }
 
 func (d *ptclCoverageDirectory) clearBit(entry *pcdEntry, bit int) {

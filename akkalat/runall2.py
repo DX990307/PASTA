@@ -94,7 +94,8 @@ BENCHMARKS_BY_TARGET = {
 }
 
 DEFAULT_BENCHMARK_FLAGS = [
-    "-max-wg=157200",
+    # "-max-wg=157200",
+    "-max-wg=76800",
     # "-max-wg=38400",
 ]
 
@@ -112,11 +113,16 @@ DEFAULT_ADAPTIVE_HIGH = 16
 DEFAULT_ADAPTIVE_THRESHOLD_PAIRS = "0:2,1:4,2:6,2:8,4:12,4:16,8:24"
 DEFAULT_MMUTLB_PTCL_RETURN_LATENCY = 80
 DEFAULT_MMUTLB_LOOKUP_LATENCY = 80
+DEFAULT_GMMU_NUM_REQ_PER_CYCLE = 128
 DEFAULT_GMMU_PTE_LOOKUP_LATENCY = 32
+DEFAULT_BASELINE_GMMU_PTE_LOOKUP_LATENCY = 32
+DEFAULT_GMMU_PTE_LOOKUP_SLOTS = 4
+DEFAULT_GMMU_FLEX_PCD_WAYS = 0
 DEFAULT_GMMU_FLEX_PROMOTION_THRESHOLD = 3
 DEFAULT_TIMEOUT_MINUTES = 0.0
 DEFAULT_PHOTON_SAMPLED_WARMUP = 512
 DEFAULT_PHOTON_SAMPLED_GRANULARITY = 512
+DEFAULT_PHOTON_LOOP_SAMPLED_WARMUP = 512
 
 GLOBAL_PHOTON_FLAGS = [
     "-sampled",
@@ -124,13 +130,13 @@ GLOBAL_PHOTON_FLAGS = [
     "-kernel-sampled",
     "-loop-sampled",
 ]
+PHOTON_BRANCH_LOOP_FLAGS = {
+    "-branch-sampled",
+    "-loop-sampled",
+}
 
 COALESCING_FLAGS = [
     "-mmu-walk-coalescing",
-]
-
-GMMU_PREFETCH_FLAGS = [
-    "-gmmu-prefetch",
 ]
 
 IOMMU_TLB_OPT_FLAGS = [
@@ -161,14 +167,27 @@ CONFIGS = [
 
 PTCL_CONFIG_NAMES = [
     "baseline",
-    "gmmu_prefetch",
     "flex_entry",
     "ptcl_mode",
+    "ptcl_parallel",
     "ptcl_flex",
     "ptcl_mode_flex",
     "pasta",
     "coalescing",
     "camsat",
+]
+
+EXTRA_PTCL_CONFIG_NAMES = [
+    "idle_iommu_assist",
+    "ptcl_mode_flex_iommu_assist",
+]
+
+ABLATION_STUDY_CONFIG_NAMES = [
+    "baseline",
+    "ptcl_mode",
+    "flex_entry",
+    "idle_iommu_assist",
+    "ptcl_mode_flex_iommu_assist",
 ]
 
 output_dir = ""
@@ -225,7 +244,7 @@ def parse_args():
         default="",
         help=(
             "Comma-separated config list. PTCL/CamSAT choices: "
-            + ",".join(PTCL_CONFIG_NAMES)
+            + ",".join(PTCL_CONFIG_NAMES + EXTRA_PTCL_CONFIG_NAMES)
             + ". Photon sampled choices: "
             + ",".join(name for name, _ in CONFIGS)
             + ". Use ptcl_all or photon_all/all for grouped configs."
@@ -288,6 +307,14 @@ def parse_args():
         ),
     )
     parser.add_argument(
+        "--photon-no-branch-loop",
+        action="store_true",
+        help=(
+            "When --photon is set, skip -branch-sampled and -loop-sampled "
+            "for debugging sampled execution."
+        ),
+    )
+    parser.add_argument(
         "--photon-verbose",
         action="store_true",
         help="Add -photon-debug and -photon-debug-verbose to sampled configs.",
@@ -336,7 +363,28 @@ def parse_args():
         "--ptcl-flex-test",
         dest="ptcl_flex_test",
         action="store_true",
-        help="Run only ptcl_mode, ptcl_flex, and ptcl_mode_flex configs.",
+        help=(
+            "Run only ptcl_mode, ptcl_parallel, ptcl_flex, and "
+            "ptcl_mode_flex configs."
+        ),
+    )
+    parser.add_argument(
+        "--ptcl-flex-iommu-assist-test",
+        dest="ptcl_flex_iommu_assist_test",
+        action="store_true",
+        help=(
+            "Run only ptcl_mode, flex_entry, idle_iommu_assist, and "
+            "ptcl_mode_flex_iommu_assist configs."
+        ),
+    )
+    parser.add_argument(
+        "--ablation-study",
+        dest="ablation_study",
+        action="store_true",
+        help=(
+            "Run baseline plus ptcl_mode, flex_entry, idle_iommu_assist, "
+            "and ptcl_mode_flex_iommu_assist configs."
+        ),
     )
     parser.add_argument(
         "--adaptive-threshold-pairs",
@@ -359,6 +407,27 @@ def parse_args():
         help="Fixed GMMU L2 TLB lookup latency per internal PTE lookup job, in cycles.",
     )
     parser.add_argument(
+        "--gmmu-num-req-per-cycle",
+        dest="gmmu_num_req_per_cycle",
+        type=int,
+        default=DEFAULT_GMMU_NUM_REQ_PER_CYCLE,
+        help=(
+            "GMMU L2 TLB top/bottom/response processing width. This is "
+            "separate from --gmmu-pte-lookup-slots."
+        ),
+    )
+    parser.add_argument(
+        "--gmmu-pte-lookup-slots",
+        dest="gmmu_pte_lookup_slots",
+        type=int,
+        default=DEFAULT_GMMU_PTE_LOOKUP_SLOTS,
+        help=(
+            "Maximum number of GMMU L2 TLB internal PTE lookup jobs in "
+            "flight. 0 keeps the old behavior and uses the GMMU "
+            "request-per-cycle width."
+        ),
+    )
+    parser.add_argument(
         "--gmmu-ptcl-serial-lookup",
         dest="gmmu_ptcl_serial_lookup",
         action="store_true",
@@ -370,6 +439,15 @@ def parse_args():
         type=int,
         default=DEFAULT_GMMU_FLEX_PROMOTION_THRESHOLD,
         help="Minimum valid bitmap fill bits before Flex stores a PTCL-line entry.",
+    )
+    parser.add_argument(
+        "--gmmu-flex-pcd-ways",
+        dest="gmmu_flex_pcd_ways",
+        type=int,
+        default=DEFAULT_GMMU_FLEX_PCD_WAYS,
+        help=(
+            "Exact PTCL locator rows per PCD set. 0 uses ceil(GMMU TLB ways / 8)."
+        ),
     )
     return parser.parse_args()
 
@@ -450,10 +528,19 @@ def adaptive_flags(low, high):
     ]
 
 
+def baseline_gmmu_lookup_flags():
+    return [
+        f"-gmmu-pte-lookup-latency={DEFAULT_BASELINE_GMMU_PTE_LOOKUP_LATENCY}",
+    ]
+
+
 def build_common_flags(args):
     flags = BASE_COMMON_FLAGS + [
         f"-mmutlb-ptcl-return-latency={args.mmutlb_ptcl_return_latency}",
+        f"-gmmu-num-req-per-cycle={args.gmmu_num_req_per_cycle}",
         f"-gmmu-pte-lookup-latency={args.gmmu_pte_lookup_latency}",
+        f"-gmmu-pte-lookup-slots={args.gmmu_pte_lookup_slots}",
+        f"-gmmu-flex-pcd-ways={args.gmmu_flex_pcd_ways}",
     ]
     if args.gmmu_ptcl_serial_lookup:
         flags.append("-gmmu-ptcl-serial-lookup")
@@ -462,9 +549,15 @@ def build_common_flags(args):
 
 def build_ablation_configs(args):
     if args.adaptive_threshold_scan:
-        if args.configs:
+        if (
+            args.configs
+            or args.ptcl_flex_test
+            or args.ptcl_flex_iommu_assist_test
+            or args.ablation_study
+        ):
             raise ValueError(
-                "--adaptive-threshold-scan cannot be combined with --configs"
+                "--adaptive-threshold-scan cannot be combined with --configs "
+                "or PTCL test presets"
             )
         threshold_pairs = parse_threshold_pairs(args.adaptive_threshold_pairs)
         return [
@@ -476,13 +569,40 @@ def build_ablation_configs(args):
         ]
 
     ptcl_configs = build_ptcl_config_map(args)
+    preset_count = sum(
+        1
+        for enabled in (
+            args.ptcl_flex_test,
+            args.ptcl_flex_iommu_assist_test,
+            args.ablation_study,
+        )
+        if enabled
+    )
+    if preset_count > 1:
+        raise ValueError(
+            "--ptcl-flex-test, --ptcl-flex-iommu-assist-test, and "
+            "--ablation-study are mutually exclusive"
+        )
+
     if args.ptcl_flex_test:
         if args.configs:
             raise ValueError("--ptcl-flex-test cannot be combined with --configs")
         return [
             ("ptcl_mode", ptcl_configs["ptcl_mode"]),
+            ("ptcl_parallel", ptcl_configs["ptcl_parallel"]),
             ("ptcl_flex", ptcl_configs["ptcl_flex"]),
             ("ptcl_mode_flex", ptcl_configs["ptcl_mode_flex"]),
+        ]
+
+    if args.ptcl_flex_iommu_assist_test or args.ablation_study:
+        if args.configs:
+            preset = "--ablation-study"
+            if args.ptcl_flex_iommu_assist_test:
+                preset = "--ptcl-flex-iommu-assist-test"
+            raise ValueError(f"{preset} cannot be combined with --configs")
+        return [
+            (config_name, ptcl_configs[config_name])
+            for config_name in ABLATION_STUDY_CONFIG_NAMES
         ]
 
     if args.configs:
@@ -502,20 +622,26 @@ def build_ptcl_config_map(args):
     ]
 
     return {
-        "baseline": VPN_MSHR_BASELINE_FLAGS,
-        "gmmu_prefetch": VPN_MSHR_BASELINE_FLAGS + GMMU_PREFETCH_FLAGS,
+        "baseline": VPN_MSHR_BASELINE_FLAGS + baseline_gmmu_lookup_flags(),
+        "idle_iommu_assist": VPN_MSHR_BASELINE_FLAGS
+        + baseline_gmmu_lookup_flags()
+        + ["-gmmu-idle-iommu-assist"],
         "flex_entry": VPN_MSHR_BASELINE_FLAGS + flex_flags,
         "ptcl_mode": adaptive_flags(low, high)
         + IOMMU_TLB_OPT_FLAGS
         + ["-gmmu-ptcl-serial-lookup"],
+        "ptcl_parallel": adaptive_flags(low, high) + IOMMU_TLB_OPT_FLAGS,
         "ptcl_flex": VPN_MSHR_BASELINE_FLAGS + flex_flags,
         "ptcl_mode_flex": adaptive_flags(low, high)
         + flex_flags
         + IOMMU_TLB_OPT_FLAGS,
-        "pasta": adaptive_flags(low, high)
+        "ptcl_mode_flex_iommu_assist": adaptive_flags(low, high)
         + flex_flags
         + IOMMU_TLB_OPT_FLAGS
-        + GMMU_PREFETCH_FLAGS,
+        + ["-gmmu-idle-iommu-assist"],
+        "pasta": adaptive_flags(low, high)
+        + flex_flags
+        + IOMMU_TLB_OPT_FLAGS,
         "coalescing": VPN_MSHR_BASELINE_FLAGS + COALESCING_FLAGS,
         "camsat": adaptive_flags(low, high) + IOMMU_TLB_OPT_FLAGS + COALESCING_FLAGS,
     }
@@ -563,7 +689,7 @@ def build_selected_configs(args, ptcl_configs):
             continue
 
         allowed = sorted(
-            set(PTCL_CONFIG_NAMES)
+            set(ptcl_configs)
             | set(photon_configs)
             | {"ptcl_all", "photon_all", "all"}
         )
@@ -667,12 +793,41 @@ def append_unique_flag(flags, flag):
         flags.append(flag)
 
 
+def selected_global_photon_flags(args):
+    flags = list(GLOBAL_PHOTON_FLAGS)
+    if args.photon_no_branch_loop:
+        flags = [
+            flag for flag in flags
+            if flag not in PHOTON_BRANCH_LOOP_FLAGS
+        ]
+    return flags
+
+
+def append_default_photon_tuning_flags(args, flags):
+    if (
+        "-loop-sampled" in flags and
+        not has_flag_with_prefix(flags, "-loop-sampled-warmup=")
+    ):
+        flags.append(
+            f"-loop-sampled-warmup={DEFAULT_PHOTON_LOOP_SAMPLED_WARMUP}"
+        )
+
+    if not has_flag_with_prefix(flags, "-sampled-warmup="):
+        flags.append(
+            f"-sampled-warmup={DEFAULT_PHOTON_SAMPLED_WARMUP}"
+        )
+    if not has_flag_with_prefix(flags, "-sampled-granularity="):
+        flags.append(
+            f"-sampled-granularity={DEFAULT_PHOTON_SAMPLED_GRANULARITY}"
+        )
+
+
 def add_global_photon_flags(args, flags):
     if not args.photon:
         return flags
 
     photon_flags = flags[:]
-    for flag in GLOBAL_PHOTON_FLAGS:
+    for flag in selected_global_photon_flags(args):
         append_unique_flag(photon_flags, flag)
 
     if args.photon_debug or args.photon_verbose:
@@ -680,14 +835,7 @@ def add_global_photon_flags(args, flags):
     if args.photon_verbose:
         append_unique_flag(photon_flags, "-photon-debug-verbose")
 
-    if not has_flag_with_prefix(photon_flags, "-sampled-warmup="):
-        photon_flags.append(
-            f"-sampled-warmup={DEFAULT_PHOTON_SAMPLED_WARMUP}"
-        )
-    if not has_flag_with_prefix(photon_flags, "-sampled-granularity="):
-        photon_flags.append(
-            f"-sampled-granularity={DEFAULT_PHOTON_SAMPLED_GRANULARITY}"
-        )
+    append_default_photon_tuning_flags(args, photon_flags)
 
     return photon_flags
 
@@ -1114,7 +1262,7 @@ def create_output_dir():
     output_dir = os.path.join(
         ROOT_DIR,
         "results",
-        datetime.now().strftime("%Y-%m-%d-%H-%M-%S-ptcl-prefetch-sweep"),
+        datetime.now().strftime("%Y-%m-%d-%H-%M-%S-ptcl-sweep"),
     )
 
     results_dir = os.path.join(ROOT_DIR, "results")
@@ -1174,10 +1322,8 @@ def main():
 
     print(f"Using common flags: {shlex.join(common_flags)}")
     if args.photon:
-        photon_defaults = GLOBAL_PHOTON_FLAGS + [
-            f"-sampled-warmup={DEFAULT_PHOTON_SAMPLED_WARMUP}",
-            f"-sampled-granularity={DEFAULT_PHOTON_SAMPLED_GRANULARITY}",
-        ]
+        photon_defaults = selected_global_photon_flags(args)
+        append_default_photon_tuning_flags(args, photon_defaults)
         print(f"Global Photon flags: {shlex.join(photon_defaults)}")
     if args.timeout_minutes > 0:
         print(f"Experiment timeout: {args.timeout_minutes} minutes")

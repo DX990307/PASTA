@@ -78,46 +78,32 @@ var gmmuInitialPTCLMode = flag.Bool("gmmu-initial-ptcl-mode", false,
 	"Whether the GMMU L2 TLB starts in PTCL coalescing mode.")
 var gmmuVPNMSHRBaseline = flag.Bool("gmmu-vpn-mshr-baseline", false,
 	"Use a per-VPN GMMU L2 TLB MSHR baseline instead of PTCL-granularity MSHRs.")
+var gmmuNumReqPerCycle = flag.Int("gmmu-num-req-per-cycle", 4,
+	"Maximum number of top/bottom/response requests the GMMU L2 TLB pipeline processes per cycle.")
 var gmmuPTELookupLatency = flag.Int("gmmu-pte-lookup-latency", 32,
 	"Fixed GMMU L2 TLB lookup latency per internal PTE lookup job, in cycles. PTCL mode can issue multiple lookup jobs in parallel.")
+var gmmuPTELookupSlots = flag.Int("gmmu-pte-lookup-slots", 0,
+	"Maximum number of GMMU L2 TLB internal PTE lookup jobs in flight. 0 uses the GMMU request-per-cycle width.")
 var gmmuPTCLSerialLookup = flag.Bool("gmmu-ptcl-serial-lookup", false,
 	"Model non-flex GMMU PTCL lookup as one serial bitmap lookup whose latency is requested bits times gmmu-pte-lookup-latency.")
+var gmmuIdleIOMMUAssist = flag.Bool("gmmu-idle-iommu-assist", false,
+	"Route ready local GMMU L2 TLB misses to the shared IOMMU path when the shared MMU page walker has a free slot.")
 var gmmuFlexTLB = flag.Bool("gmmu-flex-tlb", false,
 	"Enable the Flex-PTCL/PTE entry format in the GMMU L2 TLB.")
+var gmmuFlexPCDWays = flag.Int("gmmu-flex-pcd-ways", 0,
+	"Number of exact PTCL locator rows per PCD set. 0 uses ceil(gmmu ways / 8).")
 var gmmuFlexPromotionThreshold = flag.Int("gmmu-flex-promotion-threshold", 3,
 	"The minimum valid response bits required before Flex stores a PTCL-line entry.")
-var gmmuPrefetch = flag.Bool("gmmu-prefetch", false,
-	"Enable the BO-aware PTCL translation prefetcher in the GMMU L2 TLB.")
-var gmmuPrefetchAdmission = flag.Int("gmmu-prefetch-admission", 3,
-	"The number of unique (GPM, PTCL) demand observations required before a GMMU prefetch learner is admitted.")
-var gmmuPrefetchMaxLearners = flag.Int("gmmu-prefetch-max-learners", 4,
-	"The maximum number of active BO-local translation prefetch learners retained in the GMMU L2 TLB.")
-var gmmuPrefetchLookahead = flag.Int("gmmu-prefetch-lookahead", 64,
-	"The maximum adaptive intra-GPM PTCL lookahead used by the GMMU L2 TLB prefetcher.")
-var gmmuPrefetchMaxCandidates = flag.Int("gmmu-prefetch-max-candidates", 4,
-	"The maximum number of GMMU prefetch candidates generated per demand request.")
 var mmuWalkCoalescing = flag.Bool("mmu-walk-coalescing", false,
-	"Enable MMU page-walk coalescing independently of the MMUTLB prefetcher.")
+	"Enable MMU page-walk coalescing.")
 var mmutlbVPNMSHRBaseline = flag.Bool("mmutlb-vpn-mshr-baseline", false,
 	"Use a per-VPN MMUTLB/IOTLB MSHR baseline instead of PTCL-granularity MSHRs.")
-var mmutlbPrefetch = flag.Bool("mmutlb-prefetch", false,
-	"Enable the BO-aware PTCL translation prefetcher in the MMUTLB.")
 var mmutlbDemandPTEOnly = flag.Bool("mmutlb-demand-pte-only", false,
-	"Force demand requests in the MMUTLB/IOTLB to issue and return only the requested PTE, while allowing PTCL-level prefetching to remain enabled.")
+	"Force demand requests in the MMUTLB/IOTLB to issue and return only the requested PTE.")
 var mmutlbFlexTLB = flag.Bool("mmutlb-flex-tlb", false,
 	"Enable PTCL set-as-line lookup/fill in the MMUTLB/IOTLB when PTCL-granularity MSHR coalescing is active.")
 var mmutlbPTCLReturnLatency = flag.Int("mmutlb-ptcl-return-latency", 80,
 	"Fixed MMUTLB/IOTLB lookup latency per requested PTE (per bitmap bit), in cycles, applied before each buffered translation request is looked up.")
-var mmutlbPrefetchDemandPTCLReturn = flag.Bool("mmutlb-prefetch-demand-ptcl-return", false,
-	"When a BO learner is confirmed, promote demand requests in the MMUTLB to PTCL-granularity returns.")
-var mmutlbPrefetchAdmission = flag.Int("mmutlb-prefetch-admission", 6,
-	"The number of unique (GPM, PTCL) demand observations required before a BO learner is admitted.")
-var mmutlbPrefetchMaxLearners = flag.Int("mmutlb-prefetch-max-learners", 4,
-	"The maximum number of active BO-local translation prefetch learners retained in the MMUTLB.")
-var mmutlbPrefetchLookahead = flag.Int("mmutlb-prefetch-lookahead", 2,
-	"The number of intra-GPM PTCL steps ahead predicted by the MMUTLB prefetcher.")
-var mmutlbPrefetchMaxCandidates = flag.Int("mmutlb-prefetch-max-candidates", 4,
-	"The maximum number of selected prefetch candidates generated per demand request.")
 var disableServersFlag = flag.Bool("disable-servers", false,
 	"Disable profiling and monitoring servers. Useful for automated tests.")
 var log2PageSizeFlag = flag.Uint64("log2-page-size", 12,

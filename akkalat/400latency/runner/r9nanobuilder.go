@@ -616,9 +616,9 @@ func (b *R9NanoGPUBuilder) buildGMMUCache() {
 		WithEngine(b.engine).
 		WithFreq(b.freq).
 		WithNumWays(16).
-		WithNumSets(64).
+		WithNumSets(16).
 		WithNumMSHREntry(16).
-		WithNumReqPerCycle(32).
+		WithNumReqPerCycle(*gmmuNumReqPerCycle).
 		WithPageSize(1<<b.log2PageSize).
 		WithLowModule(b.gmmu.GetPortByName("Top")).
 		WithDeviceID(b.gpuID).
@@ -629,15 +629,13 @@ func (b *R9NanoGPUBuilder) buildGMMUCache() {
 		WithInitialPTCLMode(*gmmuInitialPTCLMode).
 		WithPerVPNMSHRBaseline(*gmmuVPNMSHRBaseline).
 		WithPTELookupLatencyCycles(*gmmuPTELookupLatency).
+		WithPTELookupSlots(*gmmuPTELookupSlots).
 		WithPTCLSerialLookup(*gmmuPTCLSerialLookup).
+		WithIdleIOMMUAssist(*gmmuIdleIOMMUAssist).
+		WithSharedPTWStateProvider(b.mmu).
 		WithFlexTLB(*gmmuFlexTLB).
+		WithFlexPCDWays(*gmmuFlexPCDWays).
 		WithFlexPromotionThreshold(*gmmuFlexPromotionThreshold).
-		WithLocalPTWStateProvider(b.gmmu).
-		WithTranslationPrefetcher(*gmmuPrefetch).
-		WithPrefetchAdmissionThreshold(*gmmuPrefetchAdmission).
-		WithPrefetchMaxLearners(*gmmuPrefetchMaxLearners).
-		WithPrefetchLookahead(*gmmuPrefetchLookahead).
-		WithPrefetchMaxCandidatesPerReq(*gmmuPrefetchMaxCandidates).
 		WithGMMUCacheTable(b.gmmuCacheTable)
 
 	gmmuCache := builder.Build(fmt.Sprintf("%s.L2TLB", b.gpuName))

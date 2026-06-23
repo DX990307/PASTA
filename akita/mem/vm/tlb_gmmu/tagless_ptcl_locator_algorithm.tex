@@ -1,0 +1,51 @@
+% IEEE conference compatible algorithm block.
+% This snippet avoids the algorithm/algpseudocode packages and works with the
+% standard IEEEtran conference template.
+
+\begin{figure}[t]
+\centering
+\begin{minipage}{0.98\columnwidth}
+\footnotesize
+\hrule
+\vspace{0.35em}
+\noindent\textbf{Algorithm 1: GMMU TLB Lookup with Tagless PTCL Locator}
+\vspace{0.25em}
+\hrule
+\vspace{0.45em}
+
+\noindent\textbf{Input:} request $(pid, vaddr)$, lookup mask $L$, demand mask $D$,
+GMMU TLB $T$, locator $C$.
+
+\noindent\textbf{Output:} hit mask $H$, returned PTEs $R$, miss mask $M$.
+
+\vspace{0.35em}
+\begin{tabbing}
+\hspace{1.2em}\=\hspace{1.2em}\=\hspace{1.2em}\=\kill
+1: $B \leftarrow \mathrm{PTCLBase}(vaddr)$ \\
+2: $H \leftarrow \vec{0}$; $R \leftarrow \emptyset$ \\
+3: $s_C \leftarrow \mathrm{LocatorSet}(pid, B)$ \\
+4: \textbf{for each} row $e \in C[s_C]$ \textbf{do} \\
+\>5: \textbf{if} $\neg e.valid$ \textbf{then continue} \\
+\>6: \textbf{for} $i \leftarrow 0$ \textbf{to} $7$ \textbf{do} \\
+\>\>7: \textbf{if} $\neg L_i \vee \neg e.present_i \vee H_i$ \textbf{then continue} \\
+\>\>8: $v_i \leftarrow B + i \cdot \mathrm{PageSize}$ \\
+\>\>9: $s_T \leftarrow \mathrm{TLBSet}(pid, v_i)$ \\
+\>\>10: $w_i \leftarrow e.way_i$ \\
+\>\>11: $pte \leftarrow T[s_T][w_i]$ \\
+\>\>12: \textbf{if} $pte.valid \wedge pte.pid=pid$ \textbf{and} \\
+\>\>\> $pte.vaddr=v_i$ \textbf{then} \\
+\>\>\>13: $H_i \leftarrow 1$; $R_i \leftarrow pte$ \\
+\>\>14: \textbf{else} \\
+\>\>\>15: $e.present_i \leftarrow 0$ \quad \textit{// stale locator} \\
+\>\>16: \textbf{end if} \\
+\>17: \textbf{end for} \\
+18: \textbf{end for} \\
+19: $M \leftarrow D \wedge \neg H$ \\
+20: \textbf{return} $(H, R, M)$
+\end{tabbing}
+\vspace{-0.2em}
+\hrule
+\end{minipage}
+\caption{GMMU TLB lookup using a tagless PTCL locator. The locator only stores sector presence bits and candidate ways; a sector hits only if the selected ordinary TLB entry passes the exact tag check.}
+\label{fig:gmmu-tlb-lookup-tagless-locator}
+\end{figure}
