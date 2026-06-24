@@ -680,7 +680,6 @@ def build_ptcl_config_map(args):
         "ptcl_mode_flex_iommu_assist": adaptive_flags(low, high)
         + flex_flags
         + IOMMU_TLB_OPT_FLAGS
-        + PTW_DEMAND_PTE_ONLY_FLAGS
         + ["-gmmu-idle-iommu-assist"],
         "pasta": adaptive_flags(low, high)
         + flex_flags
