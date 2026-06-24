@@ -64,6 +64,21 @@ func (mr *MockSetMockRecorder) Lookup(arg0, arg1 interface{}) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Lookup", reflect.TypeOf((*MockSet)(nil).Lookup), arg0, arg1)
 }
 
+// Peek mocks base method.
+func (m *MockSet) Peek(arg0 int) (vm.Page, bool) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Peek", arg0)
+	ret0, _ := ret[0].(vm.Page)
+	ret1, _ := ret[1].(bool)
+	return ret0, ret1
+}
+
+// Peek indicates an expected call of Peek.
+func (mr *MockSetMockRecorder) Peek(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Peek", reflect.TypeOf((*MockSet)(nil).Peek), arg0)
+}
+
 // Update mocks base method.
 func (m *MockSet) Update(arg0 int, arg1 vm.Page) {
 	m.ctrl.T.Helper()

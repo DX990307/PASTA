@@ -1,7 +1,5 @@
 package mmuTLB
 
-import "github.com/sarchlab/akita/v3/mem/vm/mmuTLB/internal"
-
 // IncomingRequestCount reports how many translation requests entered the
 // IOMMU-side TLB from the GMMU path.
 func (tlb *TLB) IncomingRequestCount() int {
@@ -45,11 +43,8 @@ func (tlb *TLB) SetAsLineStats() (
 	conflictEvictions int,
 	lineEntries int,
 ) {
-	for _, set := range tlb.Sets {
-		ptclSet, ok := set.(internal.PTCLSet)
-		if ok && ptclSet.PTCLLineValid() {
-			lineEntries++
-		}
+	if tlb.pcd != nil {
+		lineEntries = tlb.pcd.validEntryCount()
 	}
 
 	return tlb.setAsLineTLBEnabled,

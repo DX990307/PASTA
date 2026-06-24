@@ -58,24 +58,25 @@ DEFAULT_RUN_BENCHMARKS = [
     # Edit this list to control the default run set when --benchmarks is omitted.
     # Comment out any workload you do not want in the default sweep.
     "bitonicsort",
+    "im2col",
+    "floydwarshall",
+    "aes",
     "relu",
     "spmv",
-    "matrixmultiplication",
+    "matrixmultiplication-ptw",
+    # "matrixmultiplication",
     "matrixtranspose",
     "fastwalshtransform",
     "fft",
     "kmeans",
     "im2col",
-    "aes",
-    "floydwarshall",
     "pagerank",
     "simpleconvolution",
     "fir",
-    "resnet",
-    "llmop",
-    "llminference",
-    "matrixmultiplication-ptw",
-    "matrixmultiplication-ptw-heavy",
+    # "resnet",
+    # "llmop",
+    # "llminference",
+    # "matrixmultiplication-ptw-heavy",
 ]
 
 BENCHMARK_ALIASES = {
@@ -116,7 +117,7 @@ DEFAULT_MMUTLB_LOOKUP_LATENCY = 80
 DEFAULT_GMMU_NUM_REQ_PER_CYCLE = 128
 DEFAULT_GMMU_PTE_LOOKUP_LATENCY = 32
 DEFAULT_BASELINE_GMMU_PTE_LOOKUP_LATENCY = 32
-DEFAULT_GMMU_PTE_LOOKUP_SLOTS = 4
+DEFAULT_GMMU_PTE_LOOKUP_SLOTS = 8
 DEFAULT_GMMU_FLEX_PCD_WAYS = 0
 DEFAULT_GMMU_FLEX_PROMOTION_THRESHOLD = 3
 DEFAULT_TIMEOUT_MINUTES = 0.0
@@ -534,6 +535,12 @@ def baseline_gmmu_lookup_flags():
     ]
 
 
+def ptcl_gmmu_lookup_flags(args):
+    return [
+        f"-gmmu-pte-lookup-latency={2 * args.gmmu_pte_lookup_latency}",
+    ]
+
+
 def build_common_flags(args):
     flags = BASE_COMMON_FLAGS + [
         f"-mmutlb-ptcl-return-latency={args.mmutlb_ptcl_return_latency}",
@@ -563,7 +570,10 @@ def build_ablation_configs(args):
         return [
             (
                 f"adaptive_l{low}_h{high}_camsat",
-                adaptive_flags(low, high) + IOMMU_TLB_OPT_FLAGS + COALESCING_FLAGS,
+                adaptive_flags(low, high)
+                + IOMMU_TLB_OPT_FLAGS
+                + COALESCING_FLAGS
+                + ptcl_gmmu_lookup_flags(args),
             )
             for low, high in threshold_pairs
         ]
@@ -627,10 +637,8 @@ def build_ptcl_config_map(args):
         + baseline_gmmu_lookup_flags()
         + ["-gmmu-idle-iommu-assist"],
         "flex_entry": VPN_MSHR_BASELINE_FLAGS + flex_flags,
-        "ptcl_mode": adaptive_flags(low, high)
-        + IOMMU_TLB_OPT_FLAGS
-        + ["-gmmu-ptcl-serial-lookup"],
-        "ptcl_parallel": adaptive_flags(low, high) + IOMMU_TLB_OPT_FLAGS,
+        "ptcl_mode": adaptive_flags(low, high) + ptcl_gmmu_lookup_flags(args),
+        "ptcl_parallel": adaptive_flags(low, high) + ptcl_gmmu_lookup_flags(args),
         "ptcl_flex": VPN_MSHR_BASELINE_FLAGS + flex_flags,
         "ptcl_mode_flex": adaptive_flags(low, high)
         + flex_flags
@@ -643,7 +651,10 @@ def build_ptcl_config_map(args):
         + flex_flags
         + IOMMU_TLB_OPT_FLAGS,
         "coalescing": VPN_MSHR_BASELINE_FLAGS + COALESCING_FLAGS,
-        "camsat": adaptive_flags(low, high) + IOMMU_TLB_OPT_FLAGS + COALESCING_FLAGS,
+        "camsat": adaptive_flags(low, high)
+        + IOMMU_TLB_OPT_FLAGS
+        + COALESCING_FLAGS
+        + ptcl_gmmu_lookup_flags(args),
     }
 
 

@@ -1,0 +1,241 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1020" viewBox="0 0 1800 1020">
+  <defs>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1d5f8f"/>
+    </marker>
+    <marker id="arrowDark" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3b3b3b"/>
+    </marker>
+    <marker id="arrowGreen" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#2f6b4f"/>
+    </marker>
+    <style>
+      .bg { fill: #ffffff; }
+      .title { font: 700 32px Arial, Helvetica, sans-serif; fill: #111111; }
+      .subtitle { font: 18px Arial, Helvetica, sans-serif; fill: #333333; }
+      .section { font: 700 19px Arial, Helvetica, sans-serif; fill: #333333; }
+      .label { font: 700 18px Arial, Helvetica, sans-serif; fill: #111111; }
+      .body { font: 15px Arial, Helvetica, sans-serif; fill: #222222; }
+      .small { font: 13px Arial, Helvetica, sans-serif; fill: #333333; }
+      .tiny { font: 12px Arial, Helvetica, sans-serif; fill: #444444; }
+      .box { fill: #ffffff; stroke: #1f1f1f; stroke-width: 2; rx: 5; ry: 5; }
+      .soft { fill: #f6f8fa; stroke: #1f1f1f; stroke-width: 1.8; rx: 5; ry: 5; }
+      .blue { fill: #eaf4fb; stroke: #1d5f8f; stroke-width: 2.2; rx: 5; ry: 5; }
+      .green { fill: #eaf6ef; stroke: #2f6b4f; stroke-width: 2.2; rx: 5; ry: 5; }
+      .yellow { fill: #fff7df; stroke: #8c6d1f; stroke-width: 2; rx: 5; ry: 5; }
+      .red { fill: #fff1f1; stroke: #9a4040; stroke-width: 2; rx: 5; ry: 5; }
+      .frame { fill: none; stroke: #8a8a8a; stroke-width: 1.6; stroke-dasharray: 8 6; rx: 9; ry: 9; }
+      .line { fill: none; stroke: #3b3b3b; stroke-width: 2.2; marker-end: url(#arrowDark); }
+      .blueLine { fill: none; stroke: #1d5f8f; stroke-width: 3; marker-end: url(#arrowBlue); }
+      .greenLine { fill: none; stroke: #2f6b4f; stroke-width: 3; marker-end: url(#arrowGreen); }
+      .dashLine { fill: none; stroke: #555555; stroke-width: 2; stroke-dasharray: 7 5; marker-end: url(#arrowDark); }
+      .bus { fill: none; stroke: #1d5f8f; stroke-width: 4; marker-end: url(#arrowBlue); }
+      .cell { fill: #ffffff; stroke: #333333; stroke-width: 1; }
+      .hit { fill: #cfe6f7; stroke: #1d5f8f; stroke-width: 1.2; }
+      .miss { fill: #f2f2f2; stroke: #555555; stroke-width: 1; }
+      .bitOn { fill: #2f83ba; stroke: #1d5f8f; stroke-width: 1; }
+      .bitOff { fill: #ffffff; stroke: #8a8a8a; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1800" height="1020"/>
+  <text x="900" y="44" text-anchor="middle" class="title">PTCL-Granularity Translation Support</text>
+  <text x="900" y="74" text-anchor="middle" class="subtitle">PTCL MSHR coalescing, PLT-guided L2 TLB lookup, and idle-IOMMU assist</text>
+
+  <!-- Top level frames -->
+  <rect x="40" y="110" width="250" height="690" class="frame"/>
+  <rect x="325" y="110" width="920" height="760" class="frame"/>
+  <rect x="1280" y="110" width="480" height="760" class="frame"/>
+
+  <text x="62" y="138" class="section">Request source</text>
+  <text x="347" y="138" class="section">Per-GPM GMMU L2 TLB</text>
+  <text x="1302" y="138" class="section">Shared IOMMU path</text>
+
+  <!-- Request source -->
+  <rect x="78" y="185" width="175" height="70" class="soft"/>
+  <text x="165" y="214" text-anchor="middle" class="label">GPM / L1 TLB</text>
+  <text x="165" y="239" text-anchor="middle" class="small">translation misses</text>
+
+  <g transform="translate(83,310)">
+    <text x="82" y="-18" text-anchor="middle" class="body">same PTCL line</text>
+    <rect x="0" y="0" width="164" height="44" class="soft"/>
+    <text x="82" y="27" text-anchor="middle" class="small">VPN B+0</text>
+    <rect x="0" y="55" width="164" height="44" class="soft"/>
+    <text x="82" y="82" text-anchor="middle" class="small">VPN B+2</text>
+    <rect x="0" y="110" width="164" height="44" class="soft"/>
+    <text x="82" y="137" text-anchor="middle" class="small">VPN B+5</text>
+  </g>
+
+  <!-- GMMU MSHR -->
+  <path d="M 253 220 L 345 220" class="blueLine"/>
+  <text x="302" y="204" text-anchor="middle" class="tiny">miss requests</text>
+
+  <rect x="365" y="170" width="275" height="215" class="blue"/>
+  <text x="502" y="198" text-anchor="middle" class="label">PTCL MSHR</text>
+  <text x="502" y="223" text-anchor="middle" class="body">key = PID + PTCL base VPN</text>
+  <rect x="402" y="245" width="200" height="38" class="box"/>
+  <text x="502" y="270" text-anchor="middle" class="body">waiter list</text>
+  <rect x="402" y="296" width="200" height="50" class="box"/>
+  <text x="502" y="318" text-anchor="middle" class="small">Uplevel bitmap</text>
+  <g transform="translate(428,328)">
+    <rect x="0" y="0" width="18" height="14" class="bitOn"/>
+    <rect x="18" y="0" width="18" height="14" class="bitOff"/>
+    <rect x="36" y="0" width="18" height="14" class="bitOn"/>
+    <rect x="54" y="0" width="18" height="14" class="bitOff"/>
+    <rect x="72" y="0" width="18" height="14" class="bitOff"/>
+    <rect x="90" y="0" width="18" height="14" class="bitOn"/>
+    <rect x="108" y="0" width="18" height="14" class="bitOff"/>
+    <rect x="126" y="0" width="18" height="14" class="bitOff"/>
+  </g>
+  <text x="502" y="365" text-anchor="middle" class="small">Response bitmap gates completion</text>
+
+  <rect x="675" y="180" width="205" height="115" class="yellow"/>
+  <text x="778" y="208" text-anchor="middle" class="label">Mode counter C</text>
+  <text x="778" y="234" text-anchor="middle" class="small">ones &gt; 1: increase</text>
+  <text x="778" y="256" text-anchor="middle" class="small">ones = 1: decrease</text>
+  <text x="778" y="278" text-anchor="middle" class="small">Tlow / Thigh hysteresis</text>
+  <path d="M 640 240 L 675 240" class="line"/>
+  <path d="M 778 295 L 778 335 L 650 335" class="dashLine"/>
+  <text x="710" y="327" text-anchor="middle" class="tiny">select PTE/PTCL mode</text>
+
+  <!-- Lookup scheduler and PLT -->
+  <path d="M 640 318 L 715 318 L 715 420" class="blueLine"/>
+  <text x="705" y="306" text-anchor="middle" class="tiny">lookup bitmap</text>
+
+  <rect x="380" y="430" width="240" height="105" class="soft"/>
+  <text x="500" y="460" text-anchor="middle" class="label">PTE lookup queue</text>
+  <text x="500" y="486" text-anchor="middle" class="small">worker slots + latency</text>
+  <text x="500" y="510" text-anchor="middle" class="small">PTCL+Flex: one lookup job</text>
+
+  <rect x="675" y="405" width="245" height="170" class="blue"/>
+  <text x="798" y="435" text-anchor="middle" class="label">PLT / PCD</text>
+  <text x="798" y="462" text-anchor="middle" class="body">compact locator side table</text>
+  <g transform="translate(708,486)">
+    <rect x="0" y="0" width="180" height="32" class="box"/>
+    <text x="90" y="21" text-anchor="middle" class="small">valid[7:0]</text>
+    <rect x="0" y="44" width="180" height="32" class="box"/>
+    <text x="90" y="65" text-anchor="middle" class="small">wayID[0..7]</text>
+  </g>
+  <text x="798" y="555" text-anchor="middle" class="tiny">no PTE, no tag, no setID</text>
+
+  <path d="M 620 482 L 675 482" class="blueLine"/>
+
+  <!-- Candidate lane block -->
+  <rect x="955" y="380" width="255" height="245" class="green"/>
+  <text x="1082" y="410" text-anchor="middle" class="label">PTCL lookup lanes</text>
+  <text x="1082" y="436" text-anchor="middle" class="body">for each demanded sector i</text>
+  <rect x="988" y="462" width="188" height="36" class="box"/>
+  <text x="1082" y="486" text-anchor="middle" class="small">setID = index(baseVPN+i)</text>
+  <rect x="988" y="512" width="188" height="36" class="box"/>
+  <text x="1082" y="536" text-anchor="middle" class="small">wayID = PLT.wayID[i]</text>
+  <rect x="988" y="562" width="188" height="36" class="box"/>
+  <text x="1082" y="586" text-anchor="middle" class="small">select L2TLB[setID][wayID]</text>
+  <path d="M 920 490 L 955 490" class="greenLine"/>
+
+  <!-- L2 TLB array -->
+  <rect x="690" y="640" width="500" height="185" class="soft"/>
+  <text x="940" y="668" text-anchor="middle" class="label">Conventional PTE-granular L2 TLB array</text>
+  <text x="940" y="692" text-anchor="middle" class="small">set-associative storage is unchanged</text>
+  <g transform="translate(748,714)">
+    <text x="-18" y="21" text-anchor="end" class="tiny">set 0</text>
+    <text x="-18" y="55" text-anchor="end" class="tiny">set 1</text>
+    <text x="-18" y="89" text-anchor="end" class="tiny">set 2</text>
+    <rect x="0" y="0" width="78" height="30" class="cell"/>
+    <rect x="78" y="0" width="78" height="30" class="hit"/>
+    <rect x="156" y="0" width="78" height="30" class="cell"/>
+    <rect x="234" y="0" width="78" height="30" class="cell"/>
+    <rect x="312" y="0" width="78" height="30" class="cell"/>
+    <rect x="0" y="34" width="78" height="30" class="cell"/>
+    <rect x="78" y="34" width="78" height="30" class="cell"/>
+    <rect x="156" y="34" width="78" height="30" class="hit"/>
+    <rect x="234" y="34" width="78" height="30" class="cell"/>
+    <rect x="312" y="34" width="78" height="30" class="cell"/>
+    <rect x="0" y="68" width="78" height="30" class="cell"/>
+    <rect x="78" y="68" width="78" height="30" class="cell"/>
+    <rect x="156" y="68" width="78" height="30" class="cell"/>
+    <rect x="234" y="68" width="78" height="30" class="hit"/>
+    <rect x="312" y="68" width="78" height="30" class="cell"/>
+    <text x="39" y="120" text-anchor="middle" class="tiny">way0</text>
+    <text x="117" y="120" text-anchor="middle" class="tiny">way1</text>
+    <text x="195" y="120" text-anchor="middle" class="tiny">way2</text>
+    <text x="273" y="120" text-anchor="middle" class="tiny">way3</text>
+    <text x="351" y="120" text-anchor="middle" class="tiny">...</text>
+  </g>
+  <path d="M 1082 625 L 1082 640" class="greenLine"/>
+  <path d="M 940 640 L 940 575" class="dashLine"/>
+  <text x="980" y="616" class="tiny">valid + tag validation</text>
+
+  <rect x="380" y="570" width="240" height="88" class="soft"/>
+  <text x="500" y="600" text-anchor="middle" class="label">MSHR update</text>
+  <text x="500" y="626" text-anchor="middle" class="small">hit: fill Pages[]</text>
+  <text x="500" y="648" text-anchor="middle" class="small">miss: build miss bitmap</text>
+  <path d="M 690 730 C 620 715, 560 680, 520 658" class="line"/>
+
+  <!-- Downstream router -->
+  <rect x="805" y="865" width="310" height="105" class="blue"/>
+  <text x="960" y="895" text-anchor="middle" class="label">Downstream router</text>
+  <text x="960" y="921" text-anchor="middle" class="small">send only remaining miss bitmap</text>
+  <text x="960" y="945" text-anchor="middle" class="small">remote: IOMMU path</text>
+  <text x="960" y="965" text-anchor="middle" class="small">local + HasFreePTW: assist path</text>
+  <path d="M 500 658 C 590 830, 730 895, 805 915" class="blueLine"/>
+
+  <!-- Local path -->
+  <rect x="385" y="865" width="260" height="105" class="soft"/>
+  <text x="515" y="895" text-anchor="middle" class="label">Local GMMU PTW</text>
+  <text x="515" y="921" text-anchor="middle" class="small">default local miss path</text>
+  <text x="515" y="945" text-anchor="middle" class="small">returns PTE response</text>
+  <path d="M 805 925 L 645 925" class="line"/>
+  <text x="725" y="907" text-anchor="middle" class="tiny">fallback</text>
+
+  <!-- IOMMU path -->
+  <path d="M 1115 905 L 1300 905" class="blueLine"/>
+  <text x="1208" y="887" text-anchor="middle" class="tiny">remote or assist</text>
+
+  <rect x="1310" y="175" width="400" height="135" class="green"/>
+  <text x="1510" y="205" text-anchor="middle" class="label">IOMMU TLB</text>
+  <text x="1510" y="232" text-anchor="middle" class="small">PTCL MSHR merges cross-GPM requests</text>
+  <text x="1510" y="256" text-anchor="middle" class="small">IOTLB PLT validates ordinary PTE entries</text>
+  <text x="1510" y="280" text-anchor="middle" class="small">full bitmap can return multiple PTEs</text>
+
+  <rect x="1325" y="365" width="370" height="95" class="yellow"/>
+  <text x="1510" y="395" text-anchor="middle" class="label">Shared MMU PW queue</text>
+  <text x="1510" y="421" text-anchor="middle" class="small">HasFreePTW() checks walkingTranslations</text>
+  <text x="1510" y="443" text-anchor="middle" class="small">walk coalescing can reduce upper-level latency</text>
+
+  <rect x="1340" y="520" width="340" height="115" class="soft"/>
+  <text x="1510" y="550" text-anchor="middle" class="label">Shared page walker</text>
+  <text x="1510" y="576" text-anchor="middle" class="small">one PTCL request may return</text>
+  <text x="1510" y="598" text-anchor="middle" class="small">multiple requested PTE responses</text>
+  <text x="1510" y="620" text-anchor="middle" class="small">through existing response path</text>
+
+  <path d="M 1510 310 L 1510 365" class="greenLine"/>
+  <path d="M 1510 460 L 1510 520" class="greenLine"/>
+  <path d="M 1435 865 L 1435 635" class="blueLine"/>
+
+  <!-- Return and fill path -->
+  <path d="M 1340 585 C 1230 585, 1210 690, 1190 730" class="line"/>
+  <text x="1240" y="575" text-anchor="middle" class="tiny">responses</text>
+  <path d="M 515 865 C 610 835, 665 805, 720 780" class="line"/>
+  <text x="610" y="842" text-anchor="middle" class="tiny">install</text>
+
+  <rect x="55" y="870" width="650" height="92" class="soft"/>
+  <text x="380" y="898" text-anchor="middle" class="label">Completion path</text>
+  <text x="380" y="925" text-anchor="middle" class="small">installPage() fills ordinary L2 TLB, recordPCDFill() updates PLT wayID,</text>
+  <text x="380" y="947" text-anchor="middle" class="small">ResponseBitmap releases all ready L1 waiters for the PTCL MSHR entry</text>
+  <path d="M 720 780 C 625 805, 520 840, 460 870" class="line"/>
+
+  <!-- Callouts -->
+  <rect x="1210" y="675" width="510" height="108" class="red"/>
+  <text x="1465" y="704" text-anchor="middle" class="label">Idle-IOMMU assist rule</text>
+  <text x="1465" y="731" text-anchor="middle" class="small">At ready-to-downstream time, a local miss is rerouted only if</text>
+  <text x="1465" y="753" text-anchor="middle" class="small">idle_iommu_assist is enabled and shared MMU HasFreePTW() is true.</text>
+  <text x="1465" y="775" text-anchor="middle" class="small">No request duplication; one response satisfies the demand.</text>
+
+  <!-- Legend -->
+  <rect x="1280" y="905" width="23" height="14" class="blue"/>
+  <text x="1312" y="917" class="tiny">GMMU PTCL mechanism</text>
+  <rect x="1455" y="905" width="23" height="14" class="green"/>
+  <text x="1487" y="917" class="tiny">IOMMU / IOTLB mechanism</text>
+  <rect x="1615" y="905" width="23" height="14" class="soft"/>
+  <text x="1647" y="917" class="tiny">existing path</text>
+</svg>

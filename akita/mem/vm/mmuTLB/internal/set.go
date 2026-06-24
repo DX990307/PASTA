@@ -11,6 +11,7 @@ import (
 // A Set holds a certain number of pages.
 type Set interface {
 	Lookup(pid vm.PID, vAddr uint64) (wayID int, page vm.Page, found bool)
+	Peek(wayID int) (page vm.Page, ok bool)
 	Update(wayID int, page vm.Page)
 	Evict() (wayID int, ok bool)
 	Visit(wayID int)
@@ -109,6 +110,14 @@ func (s *setImpl) Lookup(pid vm.PID, vAddr uint64) (
 	block := s.blocks[wayID]
 
 	return block.wayID, block.page, true
+}
+
+func (s *setImpl) Peek(wayID int) (vm.Page, bool) {
+	if wayID < 0 || wayID >= len(s.blocks) {
+		return vm.Page{}, false
+	}
+
+	return s.blocks[wayID].page, true
 }
 
 func (s *setImpl) Update(wayID int, page vm.Page) {

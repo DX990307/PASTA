@@ -484,7 +484,7 @@ func (tlb *GMMUTLB) clearPTELookups() {
 func (tlb *GMMUTLB) lookupBitmapForReq(req *vm.TranslationReq) [8]bool {
 	requestedBitmap := tlb.normalizeBitmap(req)
 	lookupBitmap := requestedBitmap
-	if tlb.ptclMode && !tlb.vpnMSHRBaseline {
+	if tlb.usePTCLSetLookup() {
 		lookupBitmap = tlb.fullBitmap()
 	}
 
@@ -1034,6 +1034,10 @@ func (tlb *GMMUTLB) issueReadyPTELookupGroup(now sim.VTimeInSec) bool {
 		return true
 	}
 
+	if tlb.shouldSplitPTCLDownstream(group) {
+		return tlb.issueSplitPTCLDownstreamGroup(now, group, downstreamBitmap)
+	}
+
 	reqToBottom, ok := tlb.sendDownstream(
 		now,
 		group.req,
@@ -1048,7 +1052,7 @@ func (tlb *GMMUTLB) issueReadyPTELookupGroup(now sim.VTimeInSec) bool {
 		mshrEntry.reqToBottom = reqToBottom
 	}
 	representedBitmap := downstreamBitmap
-	if group.ptclLookup {
+	if tlb.shouldCoalescePTCLDownstream(group) {
 		representedBitmap = tlb.ptclCoveredBitmapForLookupGroup(group)
 		tlb.registerPTCLRepresentativeMiss(group, representedBitmap)
 	}
@@ -1062,6 +1066,72 @@ func (tlb *GMMUTLB) issueReadyPTELookupGroup(now sim.VTimeInSec) bool {
 	tlb.pteLookupReadyToIssue = tlb.pteLookupReadyToIssue[1:]
 	delete(tlb.pteLookupGroups, key)
 	return true
+}
+
+func (tlb *GMMUTLB) issueSplitPTCLDownstreamGroup(
+	now sim.VTimeInSec,
+	group *pteLookupGroup,
+	downstreamBitmap [8]bool,
+) bool {
+	pendingBitmap := tlb.subtractBitmaps(
+		downstreamBitmap,
+		group.representedBitmap,
+	)
+	if tlb.isBitmapZero(pendingBitmap) {
+		tlb.updateIssuedBitmapAfterLookupGroup(group, group.representedBitmap)
+		tlb.pteLookupReadyToIssue = tlb.pteLookupReadyToIssue[1:]
+		delete(tlb.pteLookupGroups, group.key)
+		return true
+	}
+
+	madeProgress := false
+	for i := 0; i < 8; i++ {
+		if !pendingBitmap[i] {
+			continue
+		}
+
+		bitBitmap := tlb.singleBitBitmap(i)
+		reqToBottom, ok := tlb.sendDownstream(
+			now,
+			group.req,
+			bitBitmap,
+			true,
+		)
+		if !ok {
+			return madeProgress
+		}
+
+		if mshrEntry := tlb.mshr.GetEntry(group.req.PID, group.req.VAddr); mshrEntry != nil {
+			mshrEntry.reqToBottom = reqToBottom
+		}
+		group.representedBitmap = tlb.mergeBitmaps(
+			group.representedBitmap,
+			bitBitmap,
+		)
+		if reqToBottom != nil {
+			tracing.TraceReqInitiate(reqToBottom, tlb,
+				tracing.MsgIDAtReceiver(group.req, tlb))
+		}
+		madeProgress = true
+	}
+
+	tlb.updateIssuedBitmapAfterLookupGroup(group, group.representedBitmap)
+	tlb.pteLookupReadyToIssue = tlb.pteLookupReadyToIssue[1:]
+	delete(tlb.pteLookupGroups, group.key)
+	return true
+}
+
+func (tlb *GMMUTLB) shouldCoalescePTCLDownstream(
+	group *pteLookupGroup,
+) bool {
+	return group != nil && group.ptclLookup && tlb.flexTLBEnabled
+}
+
+func (tlb *GMMUTLB) shouldSplitPTCLDownstream(
+	group *pteLookupGroup,
+) bool {
+	return group != nil && group.ptclLookup &&
+		!tlb.shouldCoalescePTCLDownstream(group)
 }
 
 func (tlb *GMMUTLB) ptclCoveredBitmapForLookupGroup(
@@ -1094,7 +1164,36 @@ func (tlb *GMMUTLB) downstreamBitmapForLookupGroup(
 		return group.missBitmap
 	}
 
+	if !tlb.shouldCoalescePTCLDownstream(group) {
+		return tlb.demandMissBitmapForLookupGroup(group)
+	}
+
 	return tlb.ptclRepresentativeBitmap(group)
+}
+
+func (tlb *GMMUTLB) demandMissBitmapForLookupGroup(
+	group *pteLookupGroup,
+) [8]bool {
+	if group == nil {
+		return [8]bool{}
+	}
+
+	mshrEntry := tlb.mshr.GetEntry(group.req.PID, group.req.VAddr)
+	if mshrEntry == nil {
+		return [8]bool{}
+	}
+
+	demandBitmap := tlb.subtractBitmaps(
+		mshrEntry.UplevelBitMap,
+		mshrEntry.ResponseBitMap,
+	)
+	demandBitmap = tlb.filterMappedBitmap(
+		group.req.PID,
+		group.key.baseVAddr,
+		demandBitmap,
+	)
+
+	return tlb.intersectBitmaps(group.missBitmap, demandBitmap)
 }
 
 func (tlb *GMMUTLB) ptclRepresentativeBitmap(
@@ -1830,6 +1929,22 @@ func (tlb *GMMUTLB) adaptiveDelta(scoreBits int) int {
 	return scoreBits - 1
 }
 
+func (tlb *GMMUTLB) adaptiveDeltaForMSHREntry(
+	entry *mshrEntry,
+	wasPTCLMode bool,
+	scoreBits int,
+) int {
+	if wasPTCLMode && tlb.flexTLBEnabled && entry.reqToBottom != nil {
+		if scoreBits <= 0 {
+			return -1
+		}
+
+		return -scoreBits
+	}
+
+	return tlb.adaptiveDelta(scoreBits)
+}
+
 func (tlb *GMMUTLB) recordAdaptiveDelta(delta int) {
 	tlb.coalescingCounter += delta
 
@@ -1868,7 +1983,7 @@ func (tlb *GMMUTLB) updateModeByMSHREntry(now sim.VTimeInSec, entry *mshrEntry) 
 
 	counterBefore := tlb.coalescingCounter
 	scoreBits, totalBits := tlb.ptclActivationDemandBits(entry)
-	delta := tlb.adaptiveDelta(scoreBits)
+	delta := tlb.adaptiveDeltaForMSHREntry(entry, wasPTCLMode, scoreBits)
 	tlb.recordAdaptiveDelta(delta)
 
 	if !wasPTCLMode && tlb.coalescingCounter > tlb.ptclHighThreshold {

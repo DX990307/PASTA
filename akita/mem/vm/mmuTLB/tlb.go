@@ -53,6 +53,7 @@ type TLB struct {
 	vpnMSHRBaseline        bool
 	demandPTEOnly          bool
 	setAsLineTLBEnabled    bool
+	pcd                    *ptclCoverageDirectory
 	lookupLatencyCycles    int
 	setLookupJobs          int
 	setLookupRequestedBits int
@@ -84,6 +85,17 @@ func (tlb *TLB) reset() {
 	tlb.setLookupSavedJobs = 0
 	tlb.setFills = 0
 	tlb.setConflictEvictions = 0
+
+	if tlb.setAsLineTLBEnabled && !tlb.vpnMSHRBaseline && !tlb.demandPTEOnly {
+		tlb.pcd = newPTCLCoverageDirectory(
+			tlb.numSets,
+			tlb.numWays,
+			0,
+			tlb.log2PageSize,
+		)
+	} else {
+		tlb.pcd = nil
+	}
 }
 
 // Tick defines how TLB update states at each cycle
@@ -297,13 +309,7 @@ func (tlb *TLB) handlePTCLSetTranslationHits(
 ) bool {
 	bitmap := tlb.normalizeBitmap(req)
 	baseVAddr := tlb.getBaseVaddr(req.VAddr)
-	setID := tlb.ptclVAddrToSetID(req.PID, baseVAddr)
-	ptclSet, ok := tlb.Sets[setID].(internal.PTCLSet)
-	if !ok {
-		return false
-	}
-
-	result := ptclSet.LookupPTCL(req.PID, baseVAddr, bitmap, tlb.pageSize)
+	result := tlb.lookupPTCLWithPCD(req.PID, baseVAddr, bitmap)
 	requestedBits := tlb.bitmapCount(bitmap)
 	hitBits := tlb.bitmapCount(result.HitBitmap)
 	missBits := tlb.bitmapCount(result.MissBitmap)
@@ -314,12 +320,9 @@ func (tlb *TLB) handlePTCLSetTranslationHits(
 	if requestedBits > 1 {
 		tlb.setLookupSavedJobs += requestedBits - 1
 	}
-	if missBits > 0 {
-		return false
-	}
 
 	for i := 0; i < 8; i++ {
-		if !bitmap[i] {
+		if !result.HitBitmap[i] {
 			continue
 		}
 		if !tlb.sendRspToTop(now, req, result.Pages[i]) {
@@ -327,8 +330,15 @@ func (tlb *TLB) handlePTCLSetTranslationHits(
 		}
 	}
 
-	tlb.reqBuffer = tlb.reqBuffer[1:]
-	return true
+	if missBits == 0 {
+		tlb.reqBuffer = tlb.reqBuffer[1:]
+		return true
+	}
+
+	if hitBits > 0 {
+		req.BitMap = result.MissBitmap
+	}
+	return false
 }
 
 func (tlb *TLB) handleTranslationMiss(
@@ -528,17 +538,34 @@ func (tlb *TLB) visit(setID, wayID int) {
 
 func (tlb *TLB) installPage(page vm.Page) bool {
 	if tlb.setAsLineTLBEnabled && !tlb.vpnMSHRBaseline && !tlb.demandPTEOnly {
-		baseVAddr := tlb.getBaseVaddr(page.VAddr)
-		bit := int((page.VAddr - baseVAddr) >> tlb.log2PageSize)
-		if bit < 0 || bit >= 8 {
-			return false
+		setID := tlb.vAddrToSetID(page.VAddr)
+		set := tlb.Sets[setID]
+
+		if wayID, _, found := set.Lookup(page.PID, page.VAddr); found {
+			set.Update(wayID, page)
+			set.Visit(wayID)
+			tlb.recordPCDFill(page, wayID)
+			tlb.setFills++
+			return true
 		}
 
-		pages := [8]vm.Page{}
-		bitmap := [8]bool{}
-		pages[bit] = page
-		bitmap[bit] = true
-		return tlb.installBitmapPages(page.PID, baseVAddr, pages, bitmap)
+		wayID, ok := set.Evict()
+		if !ok {
+			return false
+		}
+		evictedPage, _ := set.Peek(wayID)
+		if evictedPage.Valid {
+			tlb.setConflictEvictions++
+			if tlb.pcd != nil {
+				tlb.pcd.removePage(evictedPage, wayID)
+			}
+		}
+
+		set.Update(wayID, page)
+		set.Visit(wayID)
+		tlb.recordPCDFill(page, wayID)
+		tlb.setFills++
+		return true
 	}
 
 	setID := tlb.vAddrToSetID(page.VAddr)
@@ -563,20 +590,14 @@ func (tlb *TLB) installBitmapPages(
 	}
 
 	if tlb.setAsLineTLBEnabled && !tlb.vpnMSHRBaseline && !tlb.demandPTEOnly {
-		setID := tlb.ptclVAddrToSetID(pid, baseVAddr)
-		ptclSet, ok := tlb.Sets[setID].(internal.PTCLSet)
-		if !ok {
-			return false
+		installed := false
+		for i := 0; i < 8; i++ {
+			if !bitmap[i] || !pages[i].Valid {
+				continue
+			}
+			installed = tlb.installPage(pages[i]) || installed
 		}
-
-		result := ptclSet.FillPTCL(pid, baseVAddr, pages, bitmap, tlb.pageSize)
-		if result.Installed {
-			tlb.setFills++
-		}
-		if result.ConflictEvicted {
-			tlb.setConflictEvictions++
-		}
-		return result.Installed
+		return installed
 	}
 
 	installed := false
@@ -587,6 +608,142 @@ func (tlb *TLB) installBitmapPages(
 		installed = tlb.installPage(pages[i]) || installed
 	}
 	return installed
+}
+
+func (tlb *TLB) lookupPTCLWithPCD(
+	pid vm.PID,
+	baseVAddr uint64,
+	lookupBitmap [8]bool,
+) pcdLookupResult {
+	result := pcdLookupResult{MissBitmap: lookupBitmap}
+	if tlb.pcd == nil {
+		return result
+	}
+
+	set := tlb.pcd.setForLine(pid, baseVAddr)
+	for entryIndex := range set.entries {
+		entry := &set.entries[entryIndex]
+		if !entry.valid {
+			continue
+		}
+
+		rowHit := false
+		for i := 0; i < 8; i++ {
+			if !lookupBitmap[i] || !entry.presentBitmap[i] ||
+				result.HitBitmap[i] {
+				continue
+			}
+
+			page, ok := tlb.validatePCDLocator(
+				pid,
+				baseVAddr,
+				i,
+				entry.locators[i],
+			)
+			if ok {
+				result.HitBitmap[i] = true
+				result.MissBitmap[i] = false
+				result.Pages[i] = page
+				rowHit = true
+				continue
+			}
+
+			tlb.pcd.clearBit(entry, i)
+			tlb.pcd.staleBits++
+			result.StaleBits++
+		}
+		if rowHit {
+			result.LineHit = true
+			tlb.pcd.visit(entry)
+		}
+	}
+
+	return result
+}
+
+func (tlb *TLB) validatePCDLocator(
+	pid vm.PID,
+	baseVAddr uint64,
+	bit int,
+	locator pcdLocator,
+) (vm.Page, bool) {
+	page, setID, ok := tlb.peekPCDLocator(pid, baseVAddr, bit, locator)
+	if !ok {
+		return vm.Page{}, false
+	}
+
+	tlb.visit(setID, locator.wayID)
+	return page, true
+}
+
+func (tlb *TLB) peekPCDLocator(
+	pid vm.PID,
+	baseVAddr uint64,
+	bit int,
+	locator pcdLocator,
+) (vm.Page, int, bool) {
+	expectedVAddr := baseVAddr + (uint64(bit) << tlb.log2PageSize)
+	setID := tlb.vAddrToSetID(expectedVAddr)
+	if setID < 0 || setID >= len(tlb.Sets) {
+		return vm.Page{}, 0, false
+	}
+
+	page, ok := tlb.Sets[setID].Peek(locator.wayID)
+	if !ok || !page.Valid {
+		return vm.Page{}, 0, false
+	}
+
+	if page.PID != pid || page.VAddr != expectedVAddr {
+		return vm.Page{}, 0, false
+	}
+
+	return page, setID, true
+}
+
+func (tlb *TLB) recordPCDFill(page vm.Page, wayID int) {
+	if tlb.pcd == nil || !page.Valid {
+		return
+	}
+
+	baseVAddr := tlb.pcd.baseVAddr(page.VAddr)
+	entry, found := tlb.pcd.findEntryForLine(
+		page.PID,
+		baseVAddr,
+		func(entry *pcdEntry) bool {
+			return tlb.pcdEntryMatchesLine(page.PID, baseVAddr, entry)
+		},
+	)
+	if !found {
+		entry = tlb.pcd.findOrAllocateEntry(page.PID, baseVAddr)
+	}
+
+	tlb.pcd.recordFillInEntry(entry, page, wayID)
+}
+
+func (tlb *TLB) pcdEntryMatchesLine(
+	pid vm.PID,
+	baseVAddr uint64,
+	entry *pcdEntry,
+) bool {
+	if entry == nil || !entry.valid {
+		return false
+	}
+
+	for bit := 0; bit < 8; bit++ {
+		if !entry.presentBitmap[bit] {
+			continue
+		}
+		if _, _, ok := tlb.peekPCDLocator(
+			pid,
+			baseVAddr,
+			bit,
+			entry.locators[bit],
+		); ok {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (tlb *TLB) getBaseVaddr(vAddr uint64) uint64 {
@@ -660,6 +817,10 @@ func (tlb *TLB) normalizeBitmap(req *vm.TranslationReq) [8]bool {
 func (tlb *TLB) effectiveBitmap(req *vm.TranslationReq) [8]bool {
 	if tlb.demandPTEOnly {
 		return tlb.singlePageBitmap(req.VAddr)
+	}
+
+	if tlb.setAsLineTLBEnabled && !tlb.vpnMSHRBaseline {
+		return tlb.fullBitmap()
 	}
 
 	return tlb.normalizeBitmap(req)
