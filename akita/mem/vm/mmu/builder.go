@@ -19,6 +19,7 @@ type Builder struct {
 	MiddleLoop               map[uint64]uint64
 	topModule                sim.Port
 	walkCoalescingEnabled    bool
+	demandPTEOnly            bool
 	// GMMUCacheTable           map[uint64]sim.Port
 	GMMUCacheTable *mem.MultiPageFinder
 }
@@ -56,6 +57,11 @@ func (b Builder) WithGMMUCacheTable(gmmuCacheTable *mem.MultiPageFinder) Builder
 
 func (b Builder) WithWalkCoalescing(enabled bool) Builder {
 	b.walkCoalescingEnabled = enabled
+	return b
+}
+
+func (b Builder) WithDemandPTEOnly(enabled bool) Builder {
+	b.demandPTEOnly = enabled
 	return b
 }
 
@@ -127,6 +133,7 @@ func (b Builder) configureInternalStates(mmu *MMU) {
 	mmu.TopModule = b.topModule
 	mmu.log2PageSize = b.log2PageSize
 	mmu.walkCoalescingEnabled = b.walkCoalescingEnabled
+	mmu.demandPTEOnly = b.demandPTEOnly
 }
 
 func (b Builder) createPageTable(mmu *MMU) {

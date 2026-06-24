@@ -332,6 +332,10 @@ func (r *Runner) reportGMMUCacheHitRate() {
 		if idleAssistEnabled {
 			idleAssistEnabledFloat = 1.0
 		}
+		ptwDemandPTEOnlyFloat := 0.0
+		if *ptwDemandPTEOnly {
+			ptwDemandPTEOnlyFloat = 1.0
+		}
 
 		r.metricsCollector.Collect(
 			tracer.gmmuCache.Name(), "ptcl_mode_enabled", ptclModeEnabled)
@@ -355,6 +359,11 @@ func (r *Runner) reportGMMUCacheHitRate() {
 			tracer.gmmuCache.Name(),
 			"ptcl_line_size",
 			float64(tracer.gmmuCache.PTCLLineSize()),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptw_demand_pte_only",
+			ptwDemandPTEOnlyFloat,
 		)
 		r.metricsCollector.Collect(
 			tracer.gmmuCache.Name(), "ptcl_threshold_low", float64(low))

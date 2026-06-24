@@ -92,6 +92,8 @@ var gmmuPTCLSerialLookup = flag.Bool("gmmu-ptcl-serial-lookup", false,
 	"Model non-flex GMMU PTCL lookup as one serial bitmap lookup whose latency is requested bits times gmmu-pte-lookup-latency.")
 var gmmuPTCLLineSize = flag.Int("gmmu-ptcl-line-size", 8,
 	"Number of PTEs per GMMU PTCL line. Valid range is 1..8; smaller values are useful for huge-page-aware PTCL studies.")
+var ptwDemandPTEOnly = flag.Bool("ptw-demand-pte-only", false,
+	"Force local GMMU and shared IOMMU/MMU page walkers to return only the demand PTE instead of extra PTCL/cache-line fills.")
 var gmmuIdleIOMMUAssist = flag.Bool("gmmu-idle-iommu-assist", false,
 	"Route ready local GMMU L2 TLB misses to the shared IOMMU path when the shared MMU page walker has a free slot.")
 var gmmuFlexTLB = flag.Bool("gmmu-flex-tlb", false,

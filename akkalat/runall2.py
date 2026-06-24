@@ -156,6 +156,10 @@ VPN_MSHR_BASELINE_FLAGS = [
     "-mmutlb-demand-pte-only",
 ]
 
+PTW_DEMAND_PTE_ONLY_FLAGS = [
+    "-ptw-demand-pte-only",
+]
+
 CONFIGS = [
     ("baseline", []),
     ("sample_all", ["-sampled", "-branch-sampled", "-kernel-sampled"]),
@@ -659,8 +663,11 @@ def build_ptcl_config_map(args):
     ]
 
     return {
-        "baseline": VPN_MSHR_BASELINE_FLAGS + baseline_gmmu_lookup_flags(),
+        "baseline": VPN_MSHR_BASELINE_FLAGS
+        + PTW_DEMAND_PTE_ONLY_FLAGS
+        + baseline_gmmu_lookup_flags(),
         "idle_iommu_assist": VPN_MSHR_BASELINE_FLAGS
+        + PTW_DEMAND_PTE_ONLY_FLAGS
         + baseline_gmmu_lookup_flags()
         + ["-gmmu-idle-iommu-assist"],
         "flex_entry": VPN_MSHR_BASELINE_FLAGS + flex_flags,

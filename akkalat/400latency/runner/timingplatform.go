@@ -406,6 +406,7 @@ func (b R9NanoPlatformBuilder) createMMU(
 		WithPageTable(pageTable).
 		WithGMMUCacheTable(gmmuCacheTable).
 		WithWalkCoalescing(*mmuWalkCoalescing).
+		WithDemandPTEOnly(*ptwDemandPTEOnly).
 		WithMMUTopModule(b.mmuTopModule)
 
 	mmuComponent := mmuBuilder.Build("MMU")

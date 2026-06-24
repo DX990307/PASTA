@@ -667,6 +667,7 @@ func (b *R9NanoGPUBuilder) buildGMMU() {
 		WithPageWalkingLatency(500).
 		WithLowModule(b.mmu.GetPortByName("Top")).
 		WithIsPrediction(true).
+		WithDemandPTEOnly(*ptwDemandPTEOnly).
 		Build(fmt.Sprintf("%s.GMMU", b.gpuName))
 
 	b.gmmu = gmmu

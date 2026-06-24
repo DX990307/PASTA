@@ -49,6 +49,7 @@ type MMU struct {
 	toRemoveFromPTW         []int
 	PageAccessedByDeviceID  map[uint64][]uint64
 	walkCoalescingEnabled   bool
+	demandPTEOnly           bool
 	lastLevelCoalescedCount int
 	twoLevelCoalescedCount  int
 
@@ -177,7 +178,9 @@ func (mmu *MMU) doPageWalkHit(
 	mmu.topSender.Send(rsp)
 
 	madeProgress = true
-	madeProgress = mmu.sendToGMMU(now, walking) || madeProgress
+	if !mmu.demandPTEOnly {
+		madeProgress = mmu.sendToGMMU(now, walking) || madeProgress
+	}
 
 	mmu.toRemoveFromPTW = append(mmu.toRemoveFromPTW, walkingIndex)
 
