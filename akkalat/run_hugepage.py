@@ -19,6 +19,10 @@ import sys
 ROOT_DIR = Path(__file__).resolve().parent
 DEFAULT_PAGE_SIZES = "64kb,2mb"
 DEFAULT_CONFIGS = "baseline,ptcl_mode_flex_iommu_assist"
+BASE_GMMU_TLB_SETS = 16
+BASE_GMMU_TLB_WAYS = 16
+BASE_PAGE_SIZE_BYTES = 4 * 1024
+BASE_PTCL_LINE_SIZE = 8
 
 
 PAGE_SIZE_ALIASES = {
@@ -68,6 +72,22 @@ def parse_args():
         help=(
             "Extra benchmark flags forwarded to runall2.py. Any existing "
             "-log2-page-size flag is replaced by this sweep."
+        ),
+    )
+    parser.add_argument(
+        "--capacity-normalized-gmmu-tlb",
+        action="store_true",
+        help=(
+            "Scale GMMU L2 TLB entries down as page size grows so byte reach "
+            "stays close to the 4KB 16x16 baseline."
+        ),
+    )
+    parser.add_argument(
+        "--hugepage-aware-ptcl-line-size",
+        action="store_true",
+        help=(
+            "Scale -gmmu-ptcl-line-size with page size to keep PTCL byte "
+            "coverage close to the 4KB 8-PTE baseline."
         ),
     )
     parser.add_argument(
@@ -198,6 +218,79 @@ def remove_log2_page_size_flags(flags):
     return cleaned
 
 
+def remove_flag_names(flags, names):
+    cleaned = []
+    skip_next = False
+    removed = []
+    normalized_names = set(names)
+
+    for i, flag in enumerate(flags):
+        if skip_next:
+            skip_next = False
+            removed.append(flag)
+            continue
+
+        matched = False
+        for name in normalized_names:
+            if flag == name:
+                removed.append(flag)
+                if i + 1 < len(flags):
+                    skip_next = True
+                matched = True
+                break
+            if flag.startswith(name + "="):
+                removed.append(flag)
+                matched = True
+                break
+
+        if matched:
+            continue
+
+        cleaned.append(flag)
+
+    if removed:
+        print(
+            "Ignoring overridden flags from --extra-benchmark-flags: "
+            + shlex.join(removed),
+            flush=True,
+        )
+
+    return cleaned
+
+
+def capacity_normalized_gmmu_tlb_shape(page_bytes):
+    base_entries = BASE_GMMU_TLB_SETS * BASE_GMMU_TLB_WAYS
+    target_entries = max(1, base_entries * BASE_PAGE_SIZE_BYTES // page_bytes)
+
+    best = None
+    for sets in range(1, BASE_GMMU_TLB_SETS + 1):
+        for ways in range(1, BASE_GMMU_TLB_WAYS + 1):
+            entries = sets * ways
+            if entries < target_entries:
+                continue
+            overage = entries - target_entries
+            shape_skew = abs(sets - ways)
+            candidate = (overage, shape_skew, entries, sets, ways)
+            if best is None or candidate < best:
+                best = candidate
+
+    if best is None:
+        return BASE_GMMU_TLB_SETS, BASE_GMMU_TLB_WAYS
+
+    _, _, _, sets, ways = best
+    return sets, ways
+
+
+def hugepage_aware_ptcl_line_size(page_bytes):
+    target_bytes = BASE_PAGE_SIZE_BYTES * BASE_PTCL_LINE_SIZE
+    line_size = target_bytes // page_bytes
+    if line_size < 1:
+        return 1
+    if line_size > BASE_PTCL_LINE_SIZE:
+        return BASE_PTCL_LINE_SIZE
+    return line_size
+
+
 def create_output_dir(args):
     if args.output_dir:
         output_dir = Path(args.output_dir).expanduser().resolve()
@@ -220,6 +313,35 @@ def build_runall_command(args, forwarded_args, output_dir, page_size):
         shlex.split(args.extra_benchmark_flags)
     )
     extra_flags.append(f'-log2-page-size={page_size["log2"]}')
+
+    if args.capacity_normalized_gmmu_tlb:
+        extra_flags = remove_flag_names(
+            extra_flags,
+            {
+                "-gmmu-tlb-num-sets",
+                "--gmmu-tlb-num-sets",
+                "-gmmu-tlb-num-ways",
+                "--gmmu-tlb-num-ways",
+            },
+        )
+        sets, ways = capacity_normalized_gmmu_tlb_shape(page_size["bytes"])
+        extra_flags += [
+            f"-gmmu-tlb-num-sets={sets}",
+            f"-gmmu-tlb-num-ways={ways}",
+        ]
+
+    if args.hugepage_aware_ptcl_line_size:
+        extra_flags = remove_flag_names(
+            extra_flags,
+            {
+                "-gmmu-ptcl-line-size",
+                "--gmmu-ptcl-line-size",
+            },
+        )
+        extra_flags.append(
+            "-gmmu-ptcl-line-size="
+            f'{hugepage_aware_ptcl_line_size(page_size["bytes"])}'
+        )
 
     cmd = [
         args.python,
@@ -244,6 +366,14 @@ def write_manifest(output_dir, page_sizes, args, forwarded_args):
         f.write(f"Created: {datetime.now()}\n")
         f.write(f"Page sizes: {args.page_sizes}\n")
         f.write(f"Configs: {args.configs}\n")
+        f.write(
+            "Capacity-normalized GMMU TLB: "
+            f"{args.capacity_normalized_gmmu_tlb}\n"
+        )
+        f.write(
+            "Huge-page-aware PTCL line size: "
+            f"{args.hugepage_aware_ptcl_line_size}\n"
+        )
         if args.benchmarks:
             f.write(f"Benchmarks: {args.benchmarks}\n")
         f.write(f"Extra benchmark flags: {args.extra_benchmark_flags}\n")
@@ -256,6 +386,17 @@ def write_manifest(output_dir, page_sizes, args, forwarded_args):
                 f'{page_size["bytes"]} bytes, '
                 f'log2={page_size["log2"]}\n'
             )
+            if args.capacity_normalized_gmmu_tlb:
+                sets, ways = capacity_normalized_gmmu_tlb_shape(page_size["bytes"])
+                f.write(
+                    f"    capacity-normalized GMMU TLB: "
+                    f"{sets} sets x {ways} ways\n"
+                )
+            if args.hugepage_aware_ptcl_line_size:
+                f.write(
+                    "    huge-page-aware PTCL line size: "
+                    f'{hugepage_aware_ptcl_line_size(page_size["bytes"])}\n'
+                )
     return manifest
 
 

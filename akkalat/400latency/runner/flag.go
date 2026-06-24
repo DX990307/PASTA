@@ -80,12 +80,18 @@ var gmmuVPNMSHRBaseline = flag.Bool("gmmu-vpn-mshr-baseline", false,
 	"Use a per-VPN GMMU L2 TLB MSHR baseline instead of PTCL-granularity MSHRs.")
 var gmmuNumReqPerCycle = flag.Int("gmmu-num-req-per-cycle", 4,
 	"Maximum number of top/bottom/response requests the GMMU L2 TLB pipeline processes per cycle.")
+var gmmuTLBNumSets = flag.Int("gmmu-tlb-num-sets", 16,
+	"Number of sets in each GMMU L2 TLB. Use with -gmmu-tlb-num-ways for capacity-normalized huge-page studies.")
+var gmmuTLBNumWays = flag.Int("gmmu-tlb-num-ways", 16,
+	"Number of ways in each GMMU L2 TLB. Use with -gmmu-tlb-num-sets for capacity-normalized huge-page studies.")
 var gmmuPTELookupLatency = flag.Int("gmmu-pte-lookup-latency", 32,
 	"Fixed GMMU L2 TLB lookup latency per internal PTE lookup job, in cycles. PTCL mode can issue multiple lookup jobs in parallel.")
 var gmmuPTELookupSlots = flag.Int("gmmu-pte-lookup-slots", 0,
 	"Maximum number of GMMU L2 TLB internal PTE lookup jobs in flight. 0 uses the GMMU request-per-cycle width.")
 var gmmuPTCLSerialLookup = flag.Bool("gmmu-ptcl-serial-lookup", false,
 	"Model non-flex GMMU PTCL lookup as one serial bitmap lookup whose latency is requested bits times gmmu-pte-lookup-latency.")
+var gmmuPTCLLineSize = flag.Int("gmmu-ptcl-line-size", 8,
+	"Number of PTEs per GMMU PTCL line. Valid range is 1..8; smaller values are useful for huge-page-aware PTCL studies.")
 var gmmuIdleIOMMUAssist = flag.Bool("gmmu-idle-iommu-assist", false,
 	"Route ready local GMMU L2 TLB misses to the shared IOMMU path when the shared MMU page walker has a free slot.")
 var gmmuFlexTLB = flag.Bool("gmmu-flex-tlb", false,

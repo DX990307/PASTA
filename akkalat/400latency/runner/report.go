@@ -299,6 +299,7 @@ func (r *Runner) reportGMMUCacheHitRate() {
 		pteModeCompletions, ptclModeCompletions :=
 			tracer.gmmuCache.ModeCompletionCounts()
 		ptclSetModeFlushes := tracer.gmmuCache.PTCLSetModeFlushes()
+		tlbSets, tlbWays, tlbEntries := tracer.gmmuCache.TLBGeometry()
 		totalDownstream, localDownstream, iommuDownstream :=
 			tracer.gmmuCache.DownstreamRequestCounts()
 		pteLookupDelayCount, pteLookupDelayCycles :=
@@ -343,6 +344,17 @@ func (r *Runner) reportGMMUCacheHitRate() {
 			tracer.gmmuCache.Name(),
 			"ptcl_coalescing_counter",
 			float64(tracer.gmmuCache.CoalescingCounter()),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(), "tlb_num_sets", float64(tlbSets))
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(), "tlb_num_ways", float64(tlbWays))
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(), "tlb_entry_capacity", float64(tlbEntries))
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_line_size",
+			float64(tracer.gmmuCache.PTCLLineSize()),
 		)
 		r.metricsCollector.Collect(
 			tracer.gmmuCache.Name(), "ptcl_threshold_low", float64(low))

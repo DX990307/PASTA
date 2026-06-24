@@ -615,8 +615,8 @@ func (b *R9NanoGPUBuilder) buildGMMUCache() {
 	builder := tlb_gmmu.MakeBuilder().
 		WithEngine(b.engine).
 		WithFreq(b.freq).
-		WithNumWays(16).
-		WithNumSets(16).
+		WithNumWays(*gmmuTLBNumWays).
+		WithNumSets(*gmmuTLBNumSets).
 		WithNumMSHREntry(16).
 		WithNumReqPerCycle(*gmmuNumReqPerCycle).
 		WithPageSize(1<<b.log2PageSize).
@@ -631,6 +631,7 @@ func (b *R9NanoGPUBuilder) buildGMMUCache() {
 		WithPTELookupLatencyCycles(*gmmuPTELookupLatency).
 		WithPTELookupSlots(*gmmuPTELookupSlots).
 		WithPTCLSerialLookup(*gmmuPTCLSerialLookup).
+		WithPTCLLineSize(*gmmuPTCLLineSize).
 		WithIdleIOMMUAssist(*gmmuIdleIOMMUAssist).
 		WithSharedPTWStateProvider(b.mmu).
 		WithFlexTLB(*gmmuFlexTLB).

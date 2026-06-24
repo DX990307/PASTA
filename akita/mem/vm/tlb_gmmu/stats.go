@@ -19,6 +19,14 @@ func (tlb *GMMUTLB) PTCLThresholds() (low, high int) {
 	return tlb.ptclLowThreshold, tlb.ptclHighThreshold
 }
 
+func (tlb *GMMUTLB) TLBGeometry() (sets, ways, entries int) {
+	return tlb.numSets, tlb.numWays, tlb.numSets * tlb.numWays
+}
+
+func (tlb *GMMUTLB) PTCLLineSize() int {
+	return tlb.effectivePTCLLineSize()
+}
+
 // ModeSwitchCounts returns the number of transitions into PTCL and PTE modes.
 func (tlb *GMMUTLB) ModeSwitchCounts() (toPTCL, toPTE int) {
 	return tlb.switchToPTCLCount, tlb.switchToPTECount

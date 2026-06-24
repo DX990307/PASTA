@@ -115,9 +115,12 @@ DEFAULT_ADAPTIVE_THRESHOLD_PAIRS = "0:2,1:4,2:6,2:8,4:12,4:16,8:24"
 DEFAULT_MMUTLB_PTCL_RETURN_LATENCY = 80
 DEFAULT_MMUTLB_LOOKUP_LATENCY = 80
 DEFAULT_GMMU_NUM_REQ_PER_CYCLE = 128
+DEFAULT_GMMU_TLB_NUM_SETS = 16
+DEFAULT_GMMU_TLB_NUM_WAYS = 16
 DEFAULT_GMMU_PTE_LOOKUP_LATENCY = 32
 DEFAULT_BASELINE_GMMU_PTE_LOOKUP_LATENCY = 32
 DEFAULT_GMMU_PTE_LOOKUP_SLOTS = 8
+DEFAULT_GMMU_PTCL_LINE_SIZE = 8
 DEFAULT_GMMU_FLEX_PCD_WAYS = 0
 DEFAULT_GMMU_FLEX_PROMOTION_THRESHOLD = 3
 DEFAULT_TIMEOUT_MINUTES = 0.0
@@ -418,6 +421,20 @@ def parse_args():
         ),
     )
     parser.add_argument(
+        "--gmmu-tlb-num-sets",
+        dest="gmmu_tlb_num_sets",
+        type=int,
+        default=DEFAULT_GMMU_TLB_NUM_SETS,
+        help="Number of sets in each GMMU L2 TLB.",
+    )
+    parser.add_argument(
+        "--gmmu-tlb-num-ways",
+        dest="gmmu_tlb_num_ways",
+        type=int,
+        default=DEFAULT_GMMU_TLB_NUM_WAYS,
+        help="Number of ways in each GMMU L2 TLB.",
+    )
+    parser.add_argument(
         "--gmmu-pte-lookup-slots",
         dest="gmmu_pte_lookup_slots",
         type=int,
@@ -433,6 +450,13 @@ def parse_args():
         dest="gmmu_ptcl_serial_lookup",
         action="store_true",
         help="Model non-flex GMMU PTCL lookup as one serial bitmap lookup instead of parallel per-bit lookup jobs.",
+    )
+    parser.add_argument(
+        "--gmmu-ptcl-line-size",
+        dest="gmmu_ptcl_line_size",
+        type=int,
+        default=DEFAULT_GMMU_PTCL_LINE_SIZE,
+        help="Number of PTEs per GMMU PTCL line. Use 1, 2, or 4 for huge-page-aware PTCL studies.",
     )
     parser.add_argument(
         "--gmmu-flex-promotion-threshold",
@@ -545,8 +569,11 @@ def build_common_flags(args):
     flags = BASE_COMMON_FLAGS + [
         f"-mmutlb-ptcl-return-latency={args.mmutlb_ptcl_return_latency}",
         f"-gmmu-num-req-per-cycle={args.gmmu_num_req_per_cycle}",
+        f"-gmmu-tlb-num-sets={args.gmmu_tlb_num_sets}",
+        f"-gmmu-tlb-num-ways={args.gmmu_tlb_num_ways}",
         f"-gmmu-pte-lookup-latency={args.gmmu_pte_lookup_latency}",
         f"-gmmu-pte-lookup-slots={args.gmmu_pte_lookup_slots}",
+        f"-gmmu-ptcl-line-size={args.gmmu_ptcl_line_size}",
         f"-gmmu-flex-pcd-ways={args.gmmu_flex_pcd_ways}",
     ]
     if args.gmmu_ptcl_serial_lookup:
@@ -1326,6 +1353,12 @@ def main():
         raise ValueError(
             f"--max-workloads cannot exceed {DEFAULT_MAX_WORKLOADS}"
         )
+    if args.gmmu_tlb_num_sets <= 0:
+        raise ValueError("--gmmu-tlb-num-sets must be positive")
+    if args.gmmu_tlb_num_ways <= 0:
+        raise ValueError("--gmmu-tlb-num-ways must be positive")
+    if args.gmmu_ptcl_line_size <= 0 or args.gmmu_ptcl_line_size > 8:
+        raise ValueError("--gmmu-ptcl-line-size must be in the range 1..8")
     if args.min_free_ram_gb < 0:
         raise ValueError("--min-free-ram-gb must be non-negative")
     if args.memory_scan_interval_minutes <= 0:
