@@ -23,6 +23,7 @@ BASE_GMMU_TLB_SETS = 16
 BASE_GMMU_TLB_WAYS = 16
 BASE_PAGE_SIZE_BYTES = 4 * 1024
 BASE_PTCL_LINE_SIZE = 8
+MIN_HUGEPAGE_PTCL_LINE_SIZE = 4
 
 
 PAGE_SIZE_ALIASES = {
@@ -86,8 +87,8 @@ def parse_args():
         "--hugepage-aware-ptcl-line-size",
         action="store_true",
         help=(
-            "Scale -gmmu-ptcl-line-size with page size to keep PTCL byte "
-            "coverage close to the 4KB 8-PTE baseline."
+            "Scale -gmmu-ptcl-line-size with page size while keeping enough "
+            "PTEs per line for PTCL/Flex promotion on huge pages."
         ),
     )
     parser.add_argument(
@@ -284,6 +285,8 @@ def capacity_normalized_gmmu_tlb_shape(page_bytes):
 def hugepage_aware_ptcl_line_size(page_bytes):
     target_bytes = BASE_PAGE_SIZE_BYTES * BASE_PTCL_LINE_SIZE
     line_size = target_bytes // page_bytes
+    if page_bytes > BASE_PAGE_SIZE_BYTES:
+        line_size = max(line_size, MIN_HUGEPAGE_PTCL_LINE_SIZE)
     if line_size < 1:
         return 1
     if line_size > BASE_PTCL_LINE_SIZE:
