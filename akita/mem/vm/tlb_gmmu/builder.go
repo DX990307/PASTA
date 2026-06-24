@@ -41,6 +41,7 @@ type Builder struct {
 	flexTLBEnabled         bool
 	flexPCDWays            int
 	flexPromotionThreshold int
+	ptclLineSize           int
 	ptclSerialLookup       bool
 	pteLookupLatencyCycles int
 	idleIOMMUAssistEnabled bool
@@ -60,6 +61,7 @@ func MakeBuilder() Builder {
 		ptclLowThres:           2,
 		initialPTCL:            false,
 		flexPromotionThreshold: 3,
+		ptclLineSize:           8,
 		pteLookupLatencyCycles: 32,
 	}
 }
@@ -76,6 +78,11 @@ func (b Builder) WithFlexPCDWays(ways int) Builder {
 
 func (b Builder) WithFlexPromotionThreshold(threshold int) Builder {
 	b.flexPromotionThreshold = threshold
+	return b
+}
+
+func (b Builder) WithPTCLLineSize(lineSize int) Builder {
+	b.ptclLineSize = lineSize
 	return b
 }
 
@@ -234,7 +241,14 @@ func (b Builder) Build(name string) *GMMUTLB {
 	}
 	tlb.pageSize = b.pageSize
 	tlb.LowModule = b.lowModule
-	tlb.mshr = newMSHR(b.numMSHREntry, 64, b.log2PageSize, b.perVPNMSHR)
+	tlb.ptclLineSize = normalizePTCLLineSize(b.ptclLineSize)
+	tlb.mshr = newMSHR(
+		b.numMSHREntry,
+		64,
+		b.log2PageSize,
+		b.perVPNMSHR,
+		tlb.ptclLineSize,
+	)
 	tlb.DeviceID = b.deviceID
 	tlb.pageTable = b.pageTable
 	tlb.IOMMUPort = b.ioMMUPort
@@ -265,6 +279,16 @@ func (b Builder) Build(name string) *GMMUTLB {
 	tlb.reset()
 
 	return tlb
+}
+
+func normalizePTCLLineSize(lineSize int) int {
+	if lineSize <= 0 {
+		return 8
+	}
+	if lineSize > 8 {
+		return 8
+	}
+	return lineSize
 }
 
 func (b Builder) createPorts(name string, tlb *GMMUTLB) {

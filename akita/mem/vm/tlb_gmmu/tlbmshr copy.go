@@ -59,6 +59,7 @@ type mshrImpl struct {
 	entryDepth   int
 	log2PageSize uint64
 	perVPNMSHR   bool
+	ptclLineSize int
 	entries      []*mshrEntry
 }
 
@@ -68,12 +69,14 @@ func newMSHR(
 	entryDepth int,
 	log2PageSize uint64,
 	perVPNMSHR bool,
+	ptclLineSize int,
 ) mshr {
 	m := new(mshrImpl)
 	m.capacity = capacity
 	m.entryDepth = entryDepth
 	m.log2PageSize = log2PageSize
 	m.perVPNMSHR = perVPNMSHR
+	m.ptclLineSize = normalizePTCLLineSize(ptclLineSize)
 
 	return m
 }
@@ -89,19 +92,19 @@ func (m *mshrImpl) Add(pid vm.PID, vAddr uint64, now sim.VTimeInSec, predictRadi
 	}
 
 	BaseVaddr := m.getEntryVAddr(vAddr)
-	VPN := vAddr >> m.log2PageSize
+	bit := m.ptclBit(vAddr)
 	entry := newMSHREntry()
 	entry.pid = pid
 	entry.baseVAddr = BaseVaddr
 	bitMap := [8]bool{}
 	RealAddrBitmap := [8]bool{}
 
-	bitMap[VPN%8] = true
-	RealAddrBitmap[VPN%8] = true
+	bitMap[bit] = true
+	RealAddrBitmap[bit] = true
 
 	entry.UplevelBitMap = bitMap
 	entry.RealAddrBitmap = RealAddrBitmap
-	entry.RealAddrTime[VPN%8] = now
+	entry.RealAddrTime[bit] = now
 
 	m.entries = append(m.entries, entry)
 	return entry
@@ -164,8 +167,24 @@ func (m *mshrImpl) PrintStats() (uint64, uint64, uint64) {
 
 func (m *mshrImpl) getBaseVaddr(vAddr uint64) uint64 {
 	VPN := vAddr >> m.log2PageSize
-	BaseVAddr := (VPN >> 3) << 3 // Clear the lower 3 bits to get the base VPN
+	lineSize := uint64(m.effectivePTCLLineSize())
+	BaseVAddr := (VPN / lineSize) * lineSize
 	return BaseVAddr << m.log2PageSize
+}
+
+func (m *mshrImpl) effectivePTCLLineSize() int {
+	if m.ptclLineSize <= 0 {
+		return 8
+	}
+	if m.ptclLineSize > 8 {
+		return 8
+	}
+	return m.ptclLineSize
+}
+
+func (m *mshrImpl) ptclBit(vAddr uint64) int {
+	vpn := vAddr >> m.log2PageSize
+	return int(vpn % uint64(m.effectivePTCLLineSize()))
 }
 
 func (m *mshrImpl) getEntryVAddr(vAddr uint64) uint64 {
@@ -204,8 +223,7 @@ func (m *mshrImpl) UpdateUpLevelBitMap(pid vm.PID, vAddr uint64, now sim.VTimeIn
 
 	bitmap := entry.UplevelBitMap
 	realAddrBitmap := entry.RealAddrBitmap
-	VPN := vAddr >> m.log2PageSize
-	bit := VPN % 8
+	bit := m.ptclBit(vAddr)
 
 	bitmap[bit] = true
 	if !realAddrBitmap[bit] {
@@ -237,8 +255,9 @@ func (m *mshrImpl) SavePage(Page vm.Page) bool {
 
 func (m *mshrImpl) getVaddrOffset(vAddr uint64) int {
 	VPN := vAddr >> m.log2PageSize
-	BaseVPN := (VPN >> 3) << 3 // Clear the lower 3 bits to get the base VPN
-	return int(VPN - BaseVPN)  // 返回 0-7 的索引
+	lineSize := uint64(m.effectivePTCLLineSize())
+	BaseVPN := (VPN / lineSize) * lineSize
+	return int(VPN - BaseVPN) // 返回 PTCL line 内的索引
 }
 
 func (m *mshrImpl) UpdatePage(pid vm.PID, vAddr uint64, page vm.Page) bool {
@@ -304,9 +323,9 @@ func (m *mshrImpl) UpdateResponseBitMap(pid vm.PID, vAddr uint64) bool {
 	}
 
 	bitmap := entry.ResponseBitMap
-	VPN := vAddr >> m.log2PageSize
+	bit := m.ptclBit(vAddr)
 
-	bitmap[VPN%8] = true
+	bitmap[bit] = true
 	entry.ResponseBitMap = bitmap
 	return true
 }
@@ -326,6 +345,5 @@ func (m *mshrImpl) IsPredicted(pid vm.PID, vAddr uint64) bool {
 		return false
 	}
 
-	VPN := vAddr >> m.log2PageSize
-	return entry.UplevelBitMap[VPN%8]
+	return entry.UplevelBitMap[m.ptclBit(vAddr)]
 }

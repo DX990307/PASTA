@@ -48,6 +48,7 @@ type GMMUTLB struct {
 	flexTLBEnabled               bool
 	flexPCDWays                  int
 	flexPromotionThreshold       int
+	ptclLineSize                 int
 	ptclSerialLookup             bool
 	ptclMode                     bool
 	coalescingCounter            int
@@ -160,6 +161,7 @@ func (tlb *GMMUTLB) reset() {
 			tlb.numWays,
 			tlb.flexPCDWays,
 			tlb.log2Pagesize,
+			tlb.effectivePTCLLineSize(),
 		)
 	} else {
 		tlb.pcd = nil
@@ -346,7 +348,7 @@ func (tlb *GMMUTLB) ptclVAddrToSetID(pid vm.PID, baseVAddr uint64) (setID int) {
 		return 0
 	}
 
-	ptclID := baseVAddr >> (tlb.log2Pagesize + 3)
+	ptclID := tlb.ptclID(baseVAddr)
 	shift := uint(0)
 	for (1 << shift) < tlb.numSets {
 		shift++
@@ -1769,14 +1771,15 @@ func (tlb *GMMUTLB) findFirstMappedPageInBitmap(
 
 func (tlb *GMMUTLB) createNewBitmap(vaddr uint64, radius int) [8]bool {
 	bitmap := [8]bool{}
-	vpn := vaddr >> tlb.log2Pagesize
+	lineSize := tlb.effectivePTCLLineSize()
+	bit := tlb.ptclBit(vaddr)
 
 	for i := 0; i <= radius; i++ {
-		if vpn%8+uint64(i) < 8 {
-			bitmap[vpn%8+uint64(i)] = true
+		if bit+i < lineSize {
+			bitmap[bit+i] = true
 		}
-		if vpn%8 >= uint64(i) {
-			bitmap[vpn%8-uint64(i)] = true
+		if bit >= i {
+			bitmap[bit-i] = true
 		}
 	}
 
@@ -1790,12 +1793,35 @@ func (tlb *GMMUTLB) mergeBitmaps(b1, b2 [8]bool) [8]bool {
 		merged[i] = b1[i] || b2[i]
 	}
 
-	return merged
+	return tlb.maskPTCLBitmap(merged)
+}
+
+func (tlb *GMMUTLB) effectivePTCLLineSize() int {
+	if tlb.ptclLineSize <= 0 {
+		return 8
+	}
+	if tlb.ptclLineSize > 8 {
+		return 8
+	}
+	return tlb.ptclLineSize
+}
+
+func (tlb *GMMUTLB) ptclBit(vAddr uint64) int {
+	vpn := vAddr >> tlb.log2Pagesize
+	return int(vpn % uint64(tlb.effectivePTCLLineSize()))
+}
+
+func (tlb *GMMUTLB) maskPTCLBitmap(bitmap [8]bool) [8]bool {
+	masked := [8]bool{}
+	for i := 0; i < tlb.effectivePTCLLineSize(); i++ {
+		masked[i] = bitmap[i]
+	}
+	return masked
 }
 
 func (tlb *GMMUTLB) normalizeBitmap(req *vm.TranslationReq) [8]bool {
 	if !tlb.isBitmapZero(req.BitMap) {
-		return req.BitMap
+		return tlb.maskPTCLBitmap(req.BitMap)
 	}
 
 	return tlb.singlePageBitmap(req.VAddr)
@@ -1803,14 +1829,13 @@ func (tlb *GMMUTLB) normalizeBitmap(req *vm.TranslationReq) [8]bool {
 
 func (tlb *GMMUTLB) singlePageBitmap(vAddr uint64) [8]bool {
 	bitmap := [8]bool{}
-	vpn := vAddr >> tlb.log2Pagesize
-	bitmap[vpn%8] = true
+	bitmap[tlb.ptclBit(vAddr)] = true
 	return bitmap
 }
 
 func (tlb *GMMUTLB) fullBitmap() [8]bool {
 	bitmap := [8]bool{}
-	for i := 0; i < 8; i++ {
+	for i := 0; i < tlb.effectivePTCLLineSize(); i++ {
 		bitmap[i] = true
 	}
 	return bitmap
@@ -1822,6 +1847,7 @@ func (tlb *GMMUTLB) filterMappedBitmap(
 	bitmap [8]bool,
 ) [8]bool {
 	baseVAddr := tlb.getBaseVaddr(vAddr)
+	bitmap = tlb.maskPTCLBitmap(bitmap)
 	filtered := [8]bool{}
 
 	for i := 0; i < 8; i++ {
@@ -1856,7 +1882,8 @@ func (tlb *GMMUTLB) intersectBitmaps(a, b [8]bool) [8]bool {
 
 func (tlb *GMMUTLB) firstBitBitmap(bitmap [8]bool) [8]bool {
 	result := [8]bool{}
-	for i := 0; i < 8; i++ {
+	bitmap = tlb.maskPTCLBitmap(bitmap)
+	for i := 0; i < tlb.effectivePTCLLineSize(); i++ {
 		if bitmap[i] {
 			return tlb.singleBitBitmap(i)
 		}
@@ -1866,7 +1893,7 @@ func (tlb *GMMUTLB) firstBitBitmap(bitmap [8]bool) [8]bool {
 
 func (tlb *GMMUTLB) singleBitBitmap(bit int) [8]bool {
 	result := [8]bool{}
-	if bit >= 0 && bit < 8 {
+	if bit >= 0 && bit < tlb.effectivePTCLLineSize() {
 		result[bit] = true
 	}
 	return result
@@ -1882,7 +1909,8 @@ func (tlb *GMMUTLB) isBitmapZero(bitmap [8]bool) bool {
 }
 
 func (tlb *GMMUTLB) ptclID(vAddr uint64) uint64 {
-	return vAddr >> (tlb.log2Pagesize + 3)
+	vpn := vAddr >> tlb.log2Pagesize
+	return vpn / uint64(tlb.effectivePTCLLineSize())
 }
 
 func (tlb *GMMUTLB) bitmapVAddr(vAddr uint64, bitmap [8]bool) uint64 {
@@ -1912,7 +1940,8 @@ func (tlb *GMMUTLB) bitmapCount(bitmap [8]bool) int {
 
 func (tlb *GMMUTLB) getBaseVaddr(vAddr uint64) uint64 {
 	vpn := vAddr >> tlb.log2Pagesize
-	baseVPN := (vpn >> 3) << 3
+	lineSize := uint64(tlb.effectivePTCLLineSize())
+	baseVPN := (vpn / lineSize) * lineSize
 	return baseVPN << tlb.log2Pagesize
 }
 

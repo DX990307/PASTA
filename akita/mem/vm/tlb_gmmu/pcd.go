@@ -22,6 +22,7 @@ type ptclCoverageDirectory struct {
 	numSets        int
 	numWays        int
 	log2PageSize   uint64
+	ptclLineSize   int
 	visitCounter   uint64
 	entryEvictions int
 	staleBits      int
@@ -32,6 +33,7 @@ func newPTCLCoverageDirectory(
 	numWays int,
 	metadataWaysOverride int,
 	log2PageSize uint64,
+	ptclLineSize int,
 ) *ptclCoverageDirectory {
 	if numSets <= 0 {
 		numSets = 1
@@ -52,6 +54,7 @@ func newPTCLCoverageDirectory(
 		numSets:      numSets,
 		numWays:      metadataWays,
 		log2PageSize: log2PageSize,
+		ptclLineSize: normalizePTCLLineSize(ptclLineSize),
 	}
 
 	for i := range d.sets {
@@ -61,14 +64,25 @@ func newPTCLCoverageDirectory(
 	return d
 }
 
+func (d *ptclCoverageDirectory) effectivePTCLLineSize() int {
+	if d.ptclLineSize <= 0 {
+		return 8
+	}
+	if d.ptclLineSize > 8 {
+		return 8
+	}
+	return d.ptclLineSize
+}
+
 func (d *ptclCoverageDirectory) baseVAddr(vAddr uint64) uint64 {
 	vpn := vAddr >> d.log2PageSize
-	return ((vpn >> 3) << 3) << d.log2PageSize
+	lineSize := uint64(d.effectivePTCLLineSize())
+	return ((vpn / lineSize) * lineSize) << d.log2PageSize
 }
 
 func (d *ptclCoverageDirectory) bit(vAddr uint64) int {
 	vpn := vAddr >> d.log2PageSize
-	return int(vpn & 0x7)
+	return int(vpn % uint64(d.effectivePTCLLineSize()))
 }
 
 func (d *ptclCoverageDirectory) setID(pid vm.PID, baseVAddr uint64) int {
@@ -76,7 +90,7 @@ func (d *ptclCoverageDirectory) setID(pid vm.PID, baseVAddr uint64) int {
 		return 0
 	}
 
-	ptclID := baseVAddr >> (d.log2PageSize + 3)
+	ptclID := (baseVAddr >> d.log2PageSize) / uint64(d.effectivePTCLLineSize())
 	shift := uint(0)
 	for (1 << shift) < d.numSets {
 		shift++
