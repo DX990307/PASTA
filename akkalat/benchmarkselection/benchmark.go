@@ -36,8 +36,13 @@ import (
 	"github.com/sarchlab/mgpusim/v3/benchmarks/heteromark/kmeans"
 	"github.com/sarchlab/mgpusim/v3/benchmarks/heteromark/pagerank"
 	"github.com/sarchlab/mgpusim/v3/benchmarks/llm/kvcache"
+	"github.com/sarchlab/mgpusim/v3/benchmarks/mafia/gups"
 	"github.com/sarchlab/mgpusim/v3/benchmarks/polybench/atax"
 	"github.com/sarchlab/mgpusim/v3/benchmarks/polybench/bicg"
+	"github.com/sarchlab/mgpusim/v3/benchmarks/polybench/fdtd2d"
+	"github.com/sarchlab/mgpusim/v3/benchmarks/polybench/gesummv"
+	"github.com/sarchlab/mgpusim/v3/benchmarks/polybench/jacobi2d"
+	"github.com/sarchlab/mgpusim/v3/benchmarks/polybench/lu"
 	"github.com/sarchlab/mgpusim/v3/benchmarks/rodinia/nw"
 	"github.com/sarchlab/mgpusim/v3/benchmarks/shoc/fft"
 	"github.com/sarchlab/mgpusim/v3/benchmarks/shoc/spmv"
@@ -57,6 +62,12 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 		aes := aes.NewBenchmark(driver)
 		aes.Length = oneGiB
 		benchmark = aes
+	case "aes-huge":
+		aes := aes.NewBenchmark(driver)
+		// AES uses 32-bit signed indexing in the kernel. Keep the huge
+		// sampled run below the 2 GiB flat-address sign boundary.
+		aes.Length = 2*oneGiB - oneMiB
+		benchmark = aes
 	case "atax":
 		atax := atax.NewBenchmark(driver)
 		atax.NX = 4096
@@ -70,6 +81,10 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 	case "bitonicsort":
 		bitonicsort := bitonicsort.NewBenchmark(driver)
 		bitonicsort.Length = oneGiB / 4
+		benchmark = bitonicsort
+	case "bitonicsort-huge":
+		bitonicsort := bitonicsort.NewBenchmark(driver)
+		bitonicsort.Length = oneGiB
 		benchmark = bitonicsort
 	case "bert":
 		benchmark = bert.NewBenchmark(driver)
@@ -91,9 +106,17 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 		fastwalshtransform := fastwalshtransform.NewBenchmark(driver)
 		fastwalshtransform.Length = oneGiB / 4
 		benchmark = fastwalshtransform
+	case "fastwalshtransform-huge":
+		fastwalshtransform := fastwalshtransform.NewBenchmark(driver)
+		fastwalshtransform.Length = oneGiB
+		benchmark = fastwalshtransform
 	case "fir":
 		fir := fir.NewBenchmark(driver)
 		fir.Length = oneGiB / 8
+		benchmark = fir
+	case "fir-huge":
+		fir := fir.NewBenchmark(driver)
+		fir.Length = oneGiB / 2
 		benchmark = fir
 	case "fft":
 		fft := fft.NewBenchmark(driver)
@@ -101,13 +124,39 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 		fft.Bytes = oneGiB / oneMiB
 		fft.Passes = 4
 		benchmark = fft
+	case "fft-huge":
+		fft := fft.NewBenchmark(driver)
+		// The FFT benchmark's Bytes field is interpreted as MiB.
+		fft.Bytes = 4 * oneGiB / oneMiB
+		fft.Passes = 4
+		benchmark = fft
 	case "floydwarshall":
 		floydwarshall := floydwarshall.NewBenchmark(driver)
 		floydwarshall.NumNodes = 11520
 		floydwarshall.NumIterations = 1
 		benchmark = floydwarshall
+	case "floydwarshall-huge":
+		floydwarshall := floydwarshall.NewBenchmark(driver)
+		floydwarshall.NumNodes = 23168
+		floydwarshall.NumIterations = 1
+		benchmark = floydwarshall
+	case "fdtd2d":
+		fdtd2d := fdtd2d.NewBenchmark(driver)
+		fdtd2d.NX = 4096
+		fdtd2d.NY = 4096
+		fdtd2d.TMax = 3
+		benchmark = fdtd2d
+	case "gesummv", "gesm":
+		gesummv := gesummv.NewBenchmark(driver)
+		gesummv.N = 8192
+		benchmark = gesummv
 	case "gpt":
 		benchmark = gpt.NewBenchmark(driver)
+	case "gups":
+		gups := gups.NewBenchmark(driver)
+		gups.TableEntries = 1 << 26
+		gups.Updates = 1 << 26
+		benchmark = gups
 	case "im2col":
 		im2col := im2col.NewBenchmark(driver)
 		im2col.N = 16 / 8
@@ -123,9 +172,31 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 		im2col.DilateX = 1
 		im2col.DilateY = 1
 		benchmark = im2col
+	case "im2col-huge":
+		im2col := im2col.NewBenchmark(driver)
+		im2col.N = 9
+		im2col.C = 3
+		im2col.H = 2048
+		im2col.W = 2048
+		im2col.KernelHeight = 3
+		im2col.KernelWidth = 3
+		im2col.PadX = 0
+		im2col.PadY = 0
+		im2col.StrideX = 1
+		im2col.StrideY = 1
+		im2col.DilateX = 1
+		im2col.DilateY = 1
+		benchmark = im2col
 	case "kmeans":
 		kmeans := kmeans.NewBenchmark(driver)
 		kmeans.NumPoints = 52 * oneMiB
+		kmeans.NumClusters = 8 / 4
+		kmeans.NumFeatures = 32 / 16
+		kmeans.MaxIter = 3 * 6
+		benchmark = kmeans
+	case "kmeans-huge":
+		kmeans := kmeans.NewBenchmark(driver)
+		kmeans.NumPoints = 205 * oneMiB
 		kmeans.NumClusters = 8 / 4
 		kmeans.NumFeatures = 32 / 16
 		kmeans.MaxIter = 3 * 6
@@ -178,6 +249,14 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 		matrixmultiplication.Y = 2048 * 512
 		matrixmultiplication.Z = 2048 / 16
 		benchmark = matrixmultiplication
+	case "matrixmultiplication-ptw-huge":
+		matrixmultiplication := matrixmultiplication.NewBenchmark(driver)
+		// Huge-page study variant: keep low compute reuse but grow the
+		// translated C-matrix footprint to about 4 GiB.
+		matrixmultiplication.X = 32
+		matrixmultiplication.Y = 2048 * 512
+		matrixmultiplication.Z = 1024
+		benchmark = matrixmultiplication
 	case "matrixmultiplication-ptw-heavy":
 		matrixmultiplication := matrixmultiplication.NewBenchmark(driver)
 		// Heavier PTW stress: low compute reuse plus twice the C-matrix page
@@ -186,9 +265,22 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 		matrixmultiplication.Y = 2048 * 512
 		matrixmultiplication.Z = 2048 / 8
 		benchmark = matrixmultiplication
-	case "matrixtranspose":
+	case "jacobi2d", "j2d":
+		jacobi2d := jacobi2d.NewBenchmark(driver)
+		jacobi2d.N = 4096
+		jacobi2d.TSteps = 3
+		benchmark = jacobi2d
+	case "lu":
+		lu := lu.NewBenchmark(driver)
+		lu.N = 2048
+		benchmark = lu
+	case "matrixtranspose", "matr":
 		matrixtranspose := matrixtranspose.NewBenchmark(driver)
 		matrixtranspose.Width = 11520
+		benchmark = matrixtranspose
+	case "matrixtranspose-huge", "matr-huge":
+		matrixtranspose := matrixtranspose.NewBenchmark(driver)
+		matrixtranspose.Width = 23168
 		benchmark = matrixtranspose
 	case "nbody":
 		nbody := nbody.NewBenchmark(driver)
@@ -205,9 +297,19 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 		pagerank.NumConnections = 1048576
 		pagerank.MaxIterations = 1
 		benchmark = pagerank
+	case "pagerank-huge":
+		pagerank := pagerank.NewBenchmark(driver)
+		pagerank.NumNodes = 339 * oneMiB
+		pagerank.NumConnections = 4 * oneMiB
+		pagerank.MaxIterations = 1
+		benchmark = pagerank
 	case "relu":
 		relu := relu.NewBenchmark(driver)
 		relu.Length = oneGiB / 8
+		benchmark = relu
+	case "relu-huge":
+		relu := relu.NewBenchmark(driver)
+		relu.Length = oneGiB / 2
 		benchmark = relu
 	case "resnet":
 		benchmark = resnet.NewBenchmark(driver)
@@ -217,9 +319,20 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 		simpleconvolution.Width = 2048 * 32
 		simpleconvolution.SetMaskSize(3)
 		benchmark = simpleconvolution
+	case "simpleconvolution-huge":
+		simpleconvolution := simpleconvolution.NewBenchmark(driver)
+		simpleconvolution.Height = 2048
+		simpleconvolution.Width = 2048 * 128
+		simpleconvolution.SetMaskSize(3)
+		benchmark = simpleconvolution
 	case "spmv":
 		spmv := spmv.NewBenchmark(driver)
 		spmv.Dim = 85 * oneMiB
+		spmv.Sparsity = 0.000000001
+		benchmark = spmv
+	case "spmv-huge":
+		spmv := spmv.NewBenchmark(driver)
+		spmv.Dim = 285 * oneMiB
 		spmv.Sparsity = 0.000000001
 		benchmark = spmv
 	case "stencil2d":

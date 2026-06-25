@@ -42,15 +42,18 @@ var _ = Describe("Partition Algorithm", func() {
 			partitions: []*partition{
 				{
 					gridBuilder: gridBuilder0,
+					limit:       8,
 				},
 				{
 					gridBuilder: gridBuilder1,
+					limit:       8,
 				},
 			},
-			cuPool:            pool,
-			numWG:             16,
-			numWGPerPartition: 8,
-			currWGs:           make([]*kernels.WorkGroup, 2),
+			cuPool:             pool,
+			numWG:              16,
+			numWGPerPartition:  8,
+			currWGs:            make([]*kernels.WorkGroup, 2),
+			enableWorkStealing: true,
 		}
 	})
 
@@ -114,6 +117,26 @@ var _ = Describe("Partition Algorithm", func() {
 
 		Expect(location.valid).To(BeTrue())
 		Expect(location.cuID).To(Equal(1))
+		Expect(alg.partitions[0].dispatchedWG).To(Equal(1))
+		Expect(alg.currWGs[0]).To(BeNil())
+		Expect(alg.numDispatchedWG).To(Equal(1))
+	})
+
+	It("should not steal work in strict partition mode", func() {
+		wg := kernels.NewWorkGroup()
+
+		alg.enableWorkStealing = false
+		alg.nextPartition = 1
+
+		alg.partitions[1].dispatchedWG = 8
+		alg.currWGs[0] = wg
+		cus[0].EXPECT().ReserveResourceForWG(wg).
+			Return([]resource.WfLocation{}, true)
+
+		location := alg.Next()
+
+		Expect(location.valid).To(BeTrue())
+		Expect(location.cuID).To(Equal(0))
 		Expect(alg.partitions[0].dispatchedWG).To(Equal(1))
 		Expect(alg.currWGs[0]).To(BeNil())
 		Expect(alg.numDispatchedWG).To(Equal(1))

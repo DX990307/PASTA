@@ -25,6 +25,14 @@ var SampledRunnerWarmupFlag = flag.Int("sampled-warmup", 1024,
 	"number of detailed wavefronts to ignore before fitting sampled timing.")
 var SampledRunnerGranularityFlag = flag.Int("sampled-granularity", 2048,
 	"number of detailed wavefronts in the long stability window.")
+var SampledFixedScheduleFlag = flag.Bool("sampled-fixed-schedule", false,
+	"use a deterministic wavefront sampling mask instead of timing-adaptive sampling.")
+var SampledFixedWarmupFlag = flag.Int("sampled-fixed-warmup", -1,
+	"number of wavefront predictions to keep detailed before fixed sampling; negative uses sampled-warmup.")
+var SampledFixedPeriodFlag = flag.Int("sampled-fixed-period", -1,
+	"period of the deterministic sampled mask; negative uses sampled-granularity.")
+var SampledFixedDetailFlag = flag.Int("sampled-fixed-detail", 1,
+	"number of detailed wavefront predictions to keep in each fixed sampling period.")
 
 type WFFeature struct {
 	Issuetime  sim.VTimeInSec
@@ -286,6 +294,18 @@ func (sampled_engine *SampledEngine) Collect(issuetime sim.VTimeInSec, finishtim
 	}
 
 	sampled_engine.dataidx++
+	if FixedScheduleEnabled() {
+		interval := finishtime - issuetime
+		if interval > 0 && !math.IsNaN(float64(interval)) &&
+			!math.IsInf(float64(interval), 0) {
+			sampled_engine.predTimeSum += interval
+			sampled_engine.predTimeNum++
+			sampled_engine.predTime =
+				sampled_engine.predTimeSum / sim.VTimeInSec(sampled_engine.predTimeNum)
+		}
+		return
+	}
+
 	if sampled_engine.dataidx < uint64(sampled_engine.warmup) {
 		PhotonVerbosef(sampled_engine.debugLabel,
 			"wf collect warmup dataidx=%d issue=%.3fns finish=%.3fns",
@@ -364,4 +384,77 @@ func (sampled_engine *SampledEngine) Predict() (sim.VTimeInSec, bool) {
 			sampled_engine.disableEngine)
 	}
 	return sampled_engine.predTime, sampled_engine.enableSampled
+}
+
+func FixedScheduleEnabled() bool {
+	return *SampledFixedScheduleFlag
+}
+
+func fixedScheduleWarmup(sampled_engine *SampledEngine) uint64 {
+	warmup := *SampledFixedWarmupFlag
+	if warmup < 0 {
+		warmup = sampled_engine.warmup
+	}
+	if warmup < 0 {
+		warmup = 0
+	}
+	return uint64(warmup)
+}
+
+func fixedSchedulePeriod() uint64 {
+	period := *SampledFixedPeriodFlag
+	if period < 0 {
+		period = *SampledRunnerGranularityFlag
+	}
+	if period < 1 {
+		period = 1
+	}
+	return uint64(period)
+}
+
+func fixedScheduleDetail(period uint64) uint64 {
+	detail := *SampledFixedDetailFlag
+	if detail < 1 {
+		detail = 1
+	}
+	detail64 := uint64(detail)
+	if detail64 > period {
+		detail64 = period
+	}
+	return detail64
+}
+
+func (sampled_engine *SampledEngine) PredictAt(index uint64) (sim.VTimeInSec, bool) {
+	if !FixedScheduleEnabled() {
+		return sampled_engine.Predict()
+	}
+
+	warmup := fixedScheduleWarmup(sampled_engine)
+	period := fixedSchedulePeriod()
+	detail := fixedScheduleDetail(period)
+	skip := !sampled_engine.disableEngine &&
+		sampled_engine.predTime > 0 &&
+		index >= warmup &&
+		((index-warmup)%period) >= detail
+
+	if skip {
+		PhotonDebugf(sampled_engine.debugLabel,
+			"wf fixed predict skip=true index=%d warmup=%d period=%d detail=%d pred=%.3fns",
+			index,
+			warmup,
+			period,
+			detail,
+			sampled_engine.predTime*1e9)
+	} else {
+		PhotonVerbosef(sampled_engine.debugLabel,
+			"wf fixed predict skip=false index=%d warmup=%d period=%d detail=%d pred=%.3fns disabled=%t",
+			index,
+			warmup,
+			period,
+			detail,
+			sampled_engine.predTime*1e9,
+			sampled_engine.disableEngine)
+	}
+
+	return sampled_engine.predTime, skip
 }

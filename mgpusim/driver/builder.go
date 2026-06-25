@@ -9,15 +9,16 @@ import (
 
 // A Builder can build a driver.
 type Builder struct {
-	engine              sim.Engine
-	freq                sim.Freq
-	log2PageSize        uint64
-	pageTable           vm.PageTable
-	globalStorage       *mem.Storage
-	useMagicMemoryCopy  bool
-	middlewareD2HCycles int
-	middlewareH2DCycles int
-	memorySize          uint64
+	engine                   sim.Engine
+	freq                     sim.Freq
+	log2PageSize             uint64
+	pageTable                vm.PageTable
+	globalStorage            *mem.Storage
+	useMagicMemoryCopy       bool
+	middlewareD2HCycles      int
+	middlewareH2DCycles      int
+	memorySize               uint64
+	allocationAlignmentPages int
 }
 
 // MakeBuilder creates a driver builder with some default configuration
@@ -81,6 +82,14 @@ func (b Builder) WithMemorySize(memorySize uint64) Builder {
 	return b
 }
 
+// WithAllocationAlignmentPages aligns allocation start addresses to this many
+// virtual pages. Use 8 with an 8-PTE PTCL line to start large buffers on PTCL
+// line boundaries.
+func (b Builder) WithAllocationAlignmentPages(pages int) Builder {
+	b.allocationAlignmentPages = pages
+	return b
+}
+
 // Build creates a driver.
 func (b Builder) Build(name string) *Driver {
 	driver := new(Driver)
@@ -89,7 +98,11 @@ func (b Builder) Build(name string) *Driver {
 
 	driver.Log2PageSize = b.log2PageSize
 
-	memAllocatorImpl := internal.NewMemoryAllocator(b.pageTable, b.log2PageSize)
+	memAllocatorImpl := internal.NewMemoryAllocatorWithAllocationAlignment(
+		b.pageTable,
+		b.log2PageSize,
+		b.allocationAlignmentPages,
+	)
 	driver.memAllocator = memAllocatorImpl
 
 	distributorImpl := newDistributorImpl(memAllocatorImpl)

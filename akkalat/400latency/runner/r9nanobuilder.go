@@ -2,6 +2,7 @@ package runner
 
 import (
 	"fmt"
+	"math"
 
 	rob2 "github.com/sarchlab/mgpusim/v3/timing/rob"
 
@@ -41,6 +42,7 @@ type R9NanoGPUBuilder struct {
 	log2PageSize                   uint64
 	log2CacheLineSize              uint64
 	log2MemoryBankInterleavingSize uint64
+	cuDispatchAlg                  string
 
 	enableISADebugging bool
 	enableMemTracing   bool
@@ -103,6 +105,7 @@ func MakeR9NanoGPUBuilder() R9NanoGPUBuilder {
 		log2CacheLineSize:              6,
 		log2PageSize:                   12,
 		log2MemoryBankInterleavingSize: 12,
+		cuDispatchAlg:                  "round-robin",
 		l2CacheSize:                    4 * mem.MB,
 		dramSize:                       8 * mem.GB,
 	}
@@ -219,6 +222,11 @@ func (b R9NanoGPUBuilder) WithLog2CacheLineSize(
 // WithLog2PageSize sets the page size with the power of 2.
 func (b R9NanoGPUBuilder) WithLog2PageSize(log2PageSize uint64) R9NanoGPUBuilder {
 	b.log2PageSize = log2PageSize
+	return b
+}
+
+func (b R9NanoGPUBuilder) WithCUDispatchAlg(alg string) R9NanoGPUBuilder {
+	b.cuDispatchAlg = alg
 	return b
 }
 
@@ -579,7 +587,7 @@ func (b *R9NanoGPUBuilder) buildL2Caches() {
 		WithWayAssociativity(16).
 		WithByteSize(byteSize).
 		WithNumMSHREntry(64).
-		WithNumReqPerCycle(16)
+		WithNumReqPerCycle(64)
 
 	for i := 0; i < b.numMemoryBank; i++ {
 		cacheName := fmt.Sprintf("%s.L2[%d]", b.gpuName, i)
@@ -714,6 +722,19 @@ func (b *R9NanoGPUBuilder) buildDRAMControllers() {
 }
 
 func (b *R9NanoGPUBuilder) createDramControllerBuilder() dram.Builder {
+	if *dramFrequencyMHzFlag <= 0 {
+		panic("dram-frequency-mhz must be positive")
+	}
+	if *dramTimingScaleFlag <= 0 {
+		panic("dram-timing-scale must be positive")
+	}
+	if *dramCommandQueueSizeFlag <= 0 {
+		panic("dram-command-queue-size must be positive")
+	}
+	if *dramTransactionQueueSizeFlag <= 0 {
+		panic("dram-transaction-queue-size must be positive")
+	}
+
 	memBankSize := 8 * mem.GB / uint64(b.numMemoryBank)
 	if 4*mem.GB%uint64(b.numMemoryBank) != 0 {
 		panic("GPU memory size is not a multiple of the number of memory banks")
@@ -735,7 +756,7 @@ func (b *R9NanoGPUBuilder) createDramControllerBuilder() dram.Builder {
 
 	memCtrlBuilder := dram.MakeBuilder().
 		WithEngine(b.engine).
-		WithFreq(500 * sim.MHz).
+		WithFreq(sim.Freq(*dramFrequencyMHzFlag) * sim.MHz).
 		WithProtocol(dram.HBM).
 		WithBurstLength(4).
 		WithDeviceWidth(dramDeviceWidth).
@@ -746,25 +767,25 @@ func (b *R9NanoGPUBuilder) createDramControllerBuilder() dram.Builder {
 		WithNumBank(dramBank).
 		WithNumCol(dramCol).
 		WithNumRow(dramRow).
-		WithCommandQueueSize(8).
-		WithTransactionQueueSize(32).
-		WithTCL(7).
-		WithTCWL(2).
-		WithTRCDRD(7).
-		WithTRCDWR(7).
-		WithTRP(7).
-		WithTRAS(17).
+		WithCommandQueueSize(*dramCommandQueueSizeFlag).
+		WithTransactionQueueSize(*dramTransactionQueueSizeFlag).
+		WithTCL(scaleDRAMTiming(7)).
+		WithTCWL(scaleDRAMTiming(2)).
+		WithTRCDRD(scaleDRAMTiming(7)).
+		WithTRCDWR(scaleDRAMTiming(7)).
+		WithTRP(scaleDRAMTiming(7)).
+		WithTRAS(scaleDRAMTiming(17)).
 		WithTREFI(1950).
-		WithTRRDS(2).
-		WithTRRDL(3).
-		WithTWTRS(3).
-		WithTWTRL(4).
-		WithTWR(8).
-		WithTCCDS(1).
-		WithTCCDL(1).
-		WithTRTRS(0).
-		WithTRTP(3).
-		WithTPPD(2)
+		WithTRRDS(scaleDRAMTiming(2)).
+		WithTRRDL(scaleDRAMTiming(3)).
+		WithTWTRS(scaleDRAMTiming(3)).
+		WithTWTRL(scaleDRAMTiming(4)).
+		WithTWR(scaleDRAMTiming(8)).
+		WithTCCDS(scaleDRAMTiming(1)).
+		WithTCCDL(scaleDRAMTiming(1)).
+		WithTRTRS(scaleDRAMTimingAllowZero(0)).
+		WithTRTP(scaleDRAMTiming(3)).
+		WithTPPD(scaleDRAMTiming(2))
 
 	if b.visTracer != nil {
 		memCtrlBuilder = memCtrlBuilder.WithAdditionalTracer(b.visTracer)
@@ -775,6 +796,21 @@ func (b *R9NanoGPUBuilder) createDramControllerBuilder() dram.Builder {
 	}
 
 	return memCtrlBuilder
+}
+
+func scaleDRAMTiming(base int) int {
+	scaled := int(math.Ceil(float64(base) * *dramTimingScaleFlag))
+	if scaled < 1 {
+		return 1
+	}
+	return scaled
+}
+
+func scaleDRAMTimingAllowZero(base int) int {
+	if base == 0 {
+		return 0
+	}
+	return scaleDRAMTiming(base)
 }
 
 func (b *R9NanoGPUBuilder) buildSA(
@@ -994,6 +1030,7 @@ func (b *R9NanoGPUBuilder) buildCP() {
 		WithEngine(b.engine).
 		WithFreq(b.freq).
 		WithGPUID(b.gpuID).
+		WithDispatchingAlg(b.cuDispatchAlg).
 		WithMonitor(b.monitor).
 		WithPerfAnalyzer(b.perfAnalyzer)
 

@@ -62,7 +62,7 @@ func (b Builder) WithDispatchingPort(p sim.Port) Builder {
 // WithAlg sets the dispatching algorithm.
 func (b Builder) WithAlg(alg string) Builder {
 	switch alg {
-	case "round-robin", "greedy", "partition":
+	case "round-robin", "greedy", "partition", "partition-strict":
 		b.alg = alg
 	default:
 		panic("unknown dispatching algorithm " + alg)
@@ -111,7 +111,13 @@ func (b Builder) Build(name string) Dispatcher {
 		}
 	case "partition":
 		d.alg = &partitionAlgorithm{
-			cuPool: b.cuResourcePool,
+			cuPool:             b.cuResourcePool,
+			enableWorkStealing: true,
+		}
+	case "partition-strict":
+		d.alg = &partitionAlgorithm{
+			cuPool:             b.cuResourcePool,
+			enableWorkStealing: false,
 		}
 	default:
 		panic("unknown dispatching algorithm " + b.alg)

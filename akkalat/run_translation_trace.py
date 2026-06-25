@@ -34,8 +34,18 @@ EXPERIMENTAL_BENCHMARKS = [
     "matrixmultiplication-ptw-heavy",
 ]
 
+HELIOSTAT_REQUESTED_BENCHMARKS = [
+    "lu",
+    "j2d",
+    "fdtd2d",
+    "matr",
+    "gups",
+    "gesm",
+]
+
 BENCHMARK_ALIASES = {
     "traditional": TRADITIONAL_BENCHMARKS,
+    "heliostat-requested": HELIOSTAT_REQUESTED_BENCHMARKS,
     "pr-spmv": ["pagerank", "spmv"],
     "graph": ["pagerank", "spmv"],
     "experimental": EXPERIMENTAL_BENCHMARKS,
@@ -144,6 +154,14 @@ def parse_args():
         "--extra-benchmark-flags",
         default="",
         help="Additional flags appended to every benchmark command.",
+    )
+    parser.add_argument(
+        "--ptcl-friendly-cu-access",
+        action="store_true",
+        help=(
+            "Append -ptcl-aligned-alloc and -cu-dispatch-alg=partition-strict "
+            "so CUs consume contiguous workgroup partitions on PTCL-line-aligned buffers."
+        ),
     )
     parser.add_argument(
         "--photon",
@@ -272,12 +290,18 @@ def photon_flags(args):
 
 
 def common_flags(args):
-    return BASE_COMMON_FLAGS + [
+    flags = BASE_COMMON_FLAGS + [
         f"-mmutlb-ptcl-return-latency={args.mmutlb_ptcl_return_latency}",
         f"-gmmu-pte-lookup-latency={args.gmmu_pte_lookup_latency}",
         "-translation-trace",
         f"-translation-trace-window-cycles={args.window_cycles}",
     ]
+    if args.ptcl_friendly_cu_access:
+        flags.extend([
+            "-ptcl-aligned-alloc",
+            "-cu-dispatch-alg=partition-strict",
+        ])
+    return flags
 
 
 def make_output_dir(args, create=True):
@@ -403,6 +427,8 @@ def run_experiment(exp, timeout_seconds):
         Path(f'{exp["stem"]}_metrics.csv'),
         Path(f'{exp["stem"]}_translation_pressure.csv'),
         Path(f'{exp["stem"]}_translation_breakdown.csv'),
+        Path(f'{exp["stem"]}_ptcl_access.csv'),
+        Path(f'{exp["stem"]}_ptcl_access_summary.csv'),
     ]
     missing = [str(path) for path in expected if not path.exists()]
     if missing:
@@ -443,6 +469,8 @@ def expected_outputs(exp):
         Path(f'{exp["stem"]}_metrics.csv'),
         Path(f'{exp["stem"]}_translation_pressure.csv'),
         Path(f'{exp["stem"]}_translation_breakdown.csv'),
+        Path(f'{exp["stem"]}_ptcl_access.csv'),
+        Path(f'{exp["stem"]}_ptcl_access_summary.csv'),
     ]
 
 

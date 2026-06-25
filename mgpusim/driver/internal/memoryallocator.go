@@ -29,13 +29,24 @@ func NewMemoryAllocator(
 	pageTable vm.PageTable,
 	log2PageSize uint64,
 ) MemoryAllocator {
+	return NewMemoryAllocatorWithAllocationAlignment(pageTable, log2PageSize, 1)
+}
+
+// NewMemoryAllocatorWithAllocationAlignment creates a memory allocator that
+// can align allocation starts to a fixed number of virtual pages.
+func NewMemoryAllocatorWithAllocationAlignment(
+	pageTable vm.PageTable,
+	log2PageSize uint64,
+	allocationAlignmentPages int,
+) MemoryAllocator {
 	a := &memoryAllocatorImpl{
-		pageTable:            pageTable,
-		totalStorageByteSize: 1 << log2PageSize, // Starting with a page to avoid 0 address.
-		log2PageSize:         log2PageSize,
-		processMemoryStates:  make(map[vm.PID]*processMemoryState),
-		vAddrToPageMapping:   make(map[uint64]vm.Page),
-		devices:              make(map[int]*Device),
+		pageTable:                pageTable,
+		totalStorageByteSize:     1 << log2PageSize, // Starting with a page to avoid 0 address.
+		log2PageSize:             log2PageSize,
+		allocationAlignmentPages: normalizeAllocationAlignmentPages(allocationAlignmentPages),
+		processMemoryStates:      make(map[vm.PID]*processMemoryState),
+		vAddrToPageMapping:       make(map[uint64]vm.Page),
+		devices:                  make(map[int]*Device),
 	}
 	return a
 }
@@ -49,12 +60,13 @@ type processMemoryState struct {
 // memoryAllocator
 type memoryAllocatorImpl struct {
 	sync.Mutex
-	pageTable            vm.PageTable
-	log2PageSize         uint64
-	vAddrToPageMapping   map[uint64]vm.Page
-	processMemoryStates  map[vm.PID]*processMemoryState
-	devices              map[int]*Device
-	totalStorageByteSize uint64
+	pageTable                vm.PageTable
+	log2PageSize             uint64
+	allocationAlignmentPages int
+	vAddrToPageMapping       map[uint64]vm.Page
+	processMemoryStates      map[vm.PID]*processMemoryState
+	devices                  map[int]*Device
+	totalStorageByteSize     uint64
 }
 
 func (a *memoryAllocatorImpl) RegisterDevice(device *Device) {
@@ -145,7 +157,7 @@ func (a *memoryAllocatorImpl) allocatePages(
 	device := a.devices[deviceID]
 
 	pageSize := uint64(1 << a.log2PageSize)
-	nextVAddr := pState.nextVAddr
+	nextVAddr := a.alignAllocationVAddr(pState.nextVAddr, pageSize)
 	// initVPN := nextVAddr >> a.log2PageSize
 	currentPage, exists := a.pageTable.GetLastPage(pid)
 	pageBlockNum := uint64(0)
@@ -184,7 +196,7 @@ func (a *memoryAllocatorImpl) allocatePages(
 		a.vAddrToPageMapping[page.VAddr] = page
 	}
 
-	pState.nextVAddr += pageSize * uint64(numPages)
+	pState.nextVAddr = nextVAddr + pageSize*uint64(numPages)
 	// finalVPN := (pState.nextVAddr - 1) >> a.log2PageSize
 
 	// startVPN := nextVAddr >> a.log2PageSize
@@ -194,6 +206,36 @@ func (a *memoryAllocatorImpl) allocatePages(
 	// numPages, pid, deviceID, startVPN, endVPN, currentPageBlock)
 
 	return nextVAddr
+}
+
+func (a *memoryAllocatorImpl) alignAllocationVAddr(
+	nextVAddr uint64,
+	pageSize uint64,
+) uint64 {
+	if a.allocationAlignmentPages <= 1 {
+		return nextVAddr
+	}
+
+	alignment := pageSize * uint64(a.allocationAlignmentPages)
+	return alignUp(nextVAddr, alignment)
+}
+
+func normalizeAllocationAlignmentPages(pages int) int {
+	if pages < 1 {
+		return 1
+	}
+	return pages
+}
+
+func alignUp(value uint64, alignment uint64) uint64 {
+	if alignment == 0 {
+		return value
+	}
+	remainder := value % alignment
+	if remainder == 0 {
+		return value
+	}
+	return value + alignment - remainder
 }
 
 func (a *memoryAllocatorImpl) allocatePageWithDistributePolicy(

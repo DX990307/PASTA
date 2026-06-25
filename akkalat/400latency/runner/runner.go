@@ -183,9 +183,14 @@ func (r *Runner) buildEmuPlatform() {
 func (r *Runner) buildTimingPlatform() {
 	b := MakeR9NanoBuilder().
 		WithLog2PageSize(configuredLog2PageSize()).
+		WithCUDispatchAlg(*cuDispatchAlg).
 		WithBandwidth(*bandwidthFlag).
 		WithSwitchLatency(*switchLatencyFlag).
 		WithMaxNumHops(*maxNumHopsFlag)
+
+	if *ptclAlignedAlloc {
+		b = b.WithAllocationAlignmentPages(configuredGMMUPTCLLineSize())
+	}
 
 	if r.Parallel {
 		b = b.WithParallelEngine()

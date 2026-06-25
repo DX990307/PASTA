@@ -204,16 +204,18 @@ func (d *DispatcherImpl) StartDispatching(req *protocol.LaunchKernelReq) {
 		}
 	}
 
-	if *sampledrunner.BranchSampledFlag {
+	if *sampledrunner.BranchSampledFlag &&
+		!sampledrunner.FixedScheduleEnabled() {
 		d.staticAnalysisKernelSampled()
 		d.alg.StartNewKernel(info)
 	}
 
 	kernelEngine := sampledrunner.KernelSampledEngineForGPU(d.gpuID)
-	shouldAnalyze := *sampledrunner.BranchSampledFlag ||
-		(*sampledrunner.KernelSampledFlag &&
-			kernelEngine != nil &&
-			kernelEngine.HistorySize() > 0)
+	shouldAnalyze := !sampledrunner.FixedScheduleEnabled() &&
+		(*sampledrunner.BranchSampledFlag ||
+			(*sampledrunner.KernelSampledFlag &&
+				kernelEngine != nil &&
+				kernelEngine.HistorySize() > 0))
 	if shouldAnalyze &&
 		uint64(d.alg.NumWG()) > *sampledrunner.KernelSampledThreshold {
 		d.analysisKernelSampled()
@@ -400,7 +402,8 @@ func (d *DispatcherImpl) dispatchNextWG(
 	wfSkip := false
 	sampledEngine := sampledrunner.SampledEngineForGPU(d.gpuID)
 	if *sampledrunner.SampledRunnerFlag && sampledEngine != nil {
-		wfIntervalTime, wfSkip = sampledEngine.Predict()
+		wfIntervalTime, wfSkip =
+			sampledEngine.PredictAt(d.numDispatchedWFs)
 		if wfSkip {
 			sampledrunner.PhotonDebugf(
 				fmt.Sprintf("GPU%d.Dispatcher", d.gpuID),
@@ -417,7 +420,8 @@ func (d *DispatcherImpl) dispatchNextWG(
 	kernelSkip := false
 	kernelEngine := sampledrunner.KernelSampledEngineForGPU(d.gpuID)
 	if *sampledrunner.KernelSampledFlag &&
-		kernelEngine != nil {
+		kernelEngine != nil &&
+		!sampledrunner.FixedScheduleEnabled() {
 		kernelSkip = kernelEngine.EnableSampled()
 		if kernelSkip {
 			sampledrunner.PhotonDebugf(

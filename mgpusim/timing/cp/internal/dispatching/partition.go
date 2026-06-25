@@ -9,10 +9,13 @@ import (
 type partition struct {
 	gridBuilder  kernels.GridBuilder
 	dispatchedWG int
+	limit        int
+	exhausted    bool
 }
 
-// partitionAlgorithm can dispatch workgroups to CUs in a round robin
-// fasion.
+// partitionAlgorithm dispatches workgroups to CUs by assigning each CU a
+// contiguous workgroup partition. Work stealing is optional for the legacy
+// partition policy, but PTCL-friendly huge-page runs should keep it disabled.
 type partitionAlgorithm struct {
 	partitions []*partition
 	cuPool     resource.CUResourcePool
@@ -23,7 +26,8 @@ type partitionAlgorithm struct {
 	numDispatchedWG   int
 	numWGPerPartition int
 
-	initialized bool
+	enableWorkStealing bool
+	initialized        bool
 }
 
 // RegisterCU allows the partitionAlgorithm to dispatch work-group to the CU.
@@ -34,21 +38,33 @@ func (a *partitionAlgorithm) RegisterCU(cu resource.DispatchableCU) {
 // StartNewKernel lets the algorithms to start dispatching a new kernel.
 func (a *partitionAlgorithm) StartNewKernel(info kernels.KernelLaunchInfo) {
 	a.numDispatchedWG = 0
+	a.nextPartition = 0
 
 	gb := kernels.NewGridBuilder()
 	gb.SetKernel(info)
 	a.numWG = gb.NumWG()
 	numCU := a.cuPool.NumCU()
-	a.numWGPerPartition = (a.numWG-1)/numCU + 1
+	if numCU == 0 {
+		panic("partition dispatching requires at least one CU")
+	}
+	if a.numWG == 0 {
+		a.numWGPerPartition = 0
+	} else {
+		a.numWGPerPartition = (a.numWG-1)/numCU + 1
+	}
 
 	a.partitions = nil
 	for i := 0; i < numCU; i++ {
+		startWG := i * a.numWGPerPartition
 		p := &partition{
 			gridBuilder: kernels.NewGridBuilder(),
+			limit:       partitionLimit(a.numWG, startWG, a.numWGPerPartition),
 		}
 
 		p.gridBuilder.SetKernel(info)
-		p.gridBuilder.Skip(i * a.numWGPerPartition)
+		if p.limit > 0 {
+			p.gridBuilder.Skip(startWG)
+		}
 
 		a.partitions = append(a.partitions, p)
 	}
@@ -114,6 +130,10 @@ func (a *partitionAlgorithm) nextWG(partitionIndex int) (
 	*kernels.WorkGroup, int,
 ) {
 	if a.noWGInPartition(partitionIndex) {
+		if !a.enableWorkStealing {
+			return nil, 0
+		}
+
 		for i := range a.partitions {
 			if a.currWGs[i] != nil {
 				return a.currWGs[i], i
@@ -129,6 +149,9 @@ func (a *partitionAlgorithm) nextWG(partitionIndex int) (
 
 	a.currWGs[partitionIndex] =
 		a.partitions[partitionIndex].gridBuilder.NextWG()
+	if a.currWGs[partitionIndex] == nil {
+		a.partitions[partitionIndex].exhausted = true
+	}
 
 	return a.currWGs[partitionIndex], partitionIndex
 }
@@ -139,11 +162,24 @@ func (a *partitionAlgorithm) allWGDispatched() bool {
 
 func (a *partitionAlgorithm) noWGInPartition(partitionIndex int) bool {
 	p := a.partitions[partitionIndex]
-	if p.dispatchedWG >= a.numWGPerPartition {
+	if p.exhausted || p.dispatchedWG >= p.limit {
 		return true
 	}
 
 	return false
+}
+
+func partitionLimit(numWG, startWG, maxPartitionSize int) int {
+	if startWG >= numWG || maxPartitionSize <= 0 {
+		return 0
+	}
+
+	remainingWG := numWG - startWG
+	if remainingWG < maxPartitionSize {
+		return remainingWG
+	}
+
+	return maxPartitionSize
 }
 
 // FreeResources marks the dispatched location to be available.

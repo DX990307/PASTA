@@ -3,11 +3,13 @@ package addresstranslator
 import (
 	"log"
 	"reflect"
+	"strings"
 
 	"github.com/sarchlab/akita/v3/mem/mem"
 	"github.com/sarchlab/akita/v3/sim"
 
 	"github.com/sarchlab/akita/v3/mem/vm"
+	"github.com/sarchlab/akita/v3/mem/vm/translationtrace"
 	"github.com/sarchlab/akita/v3/tracing"
 )
 
@@ -151,6 +153,16 @@ func (t *AddressTranslator) translate(now sim.VTimeInSec) bool {
 	err := t.translationPort.Send(transReq)
 	if err != nil {
 		return false
+	}
+	if strings.Contains(t.Name(), ".L1VAddrTrans[") {
+		translationtrace.RecordPageAccess(
+			now,
+			t.Name(),
+			uint32(req.GetPID()),
+			t.deviceID,
+			vPageID,
+			t.log2PageSize,
+		)
 	}
 	// fmt.Printf("%0.9f,%s,generateReq,%s,%d,%d,%d\n",
 	// 	float64(now), transReq.Src.Name(), transReq.TaskID,

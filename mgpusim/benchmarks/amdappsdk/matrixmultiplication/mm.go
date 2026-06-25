@@ -111,9 +111,9 @@ func (m *GPUMatrixMultiplier) launchKernel(
 func (m *GPUMatrixMultiplier) initMemory(
 	mA, mB, mC *Matrix,
 ) (driver.Ptr, driver.Ptr, driver.Ptr) {
-	sizeA := uint64(mA.Width * mA.Height * 4)
-	sizeB := uint64(mB.Width * mB.Height * 4)
-	sizeC := uint64(mC.Width * mC.Height * 4)
+	sizeA := uint64(mA.Width) * uint64(mA.Height) * 4
+	sizeB := uint64(mB.Width) * uint64(mB.Height) * 4
+	sizeC := uint64(mC.Width) * uint64(mC.Height) * 4
 
 	if m.useUnifiedMemory {
 		gA := m.driver.AllocateUnifiedMemory(m.context, sizeA)

@@ -22,6 +22,7 @@ type Builder struct {
 	monitor        *monitoring.Monitor
 	perfAnalyzer   *analysis.PerfAnalyzer
 	numDispatchers int
+	dispatchingAlg string
 }
 
 // MakeBuilder creates a new builder with default configuration values.
@@ -29,6 +30,7 @@ func MakeBuilder() Builder {
 	b := Builder{
 		freq:           1 * sim.GHz,
 		numDispatchers: 8,
+		dispatchingAlg: "round-robin",
 	}
 	return b
 }
@@ -69,6 +71,12 @@ func (b Builder) WithPerfAnalyzer(
 	analyzer *analysis.PerfAnalyzer,
 ) Builder {
 	b.perfAnalyzer = analyzer
+	return b
+}
+
+// WithDispatchingAlg sets how workgroups are assigned to CUs.
+func (b Builder) WithDispatchingAlg(alg string) Builder {
+	b.dispatchingAlg = alg
 	return b
 }
 
@@ -150,7 +158,7 @@ func (b *Builder) buildDispatchers(cp *CommandProcessor) {
 	builder := dispatching.MakeBuilder().
 		WithCP(cp).
 		WithGPUID(b.gpuID).
-		WithAlg("round-robin").
+		WithAlg(b.dispatchingAlg).
 		WithCUResourcePool(cuResourcePool).
 		WithDispatchingPort(cp.ToCUs).
 		WithRespondingPort(cp.ToDriver).

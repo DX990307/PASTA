@@ -90,9 +90,9 @@ func (b *Benchmark) initMem() {
 	}
 
 	if b.useUnifiedMemory {
-		b.dInputArray = b.driver.AllocateUnifiedMemory(b.context, uint64(b.Length*4))
+		b.dInputArray = b.driver.AllocateUnifiedMemory(b.context, uint64(b.Length)*4)
 	} else {
-		b.dInputArray = b.driver.AllocateMemory(b.context, uint64(b.Length*4))
+		b.dInputArray = b.driver.AllocateMemory(b.context, uint64(b.Length)*4)
 	}
 
 	b.driver.MemCopyH2D(b.context, b.dInputArray, b.hInputArray)

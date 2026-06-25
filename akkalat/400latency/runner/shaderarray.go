@@ -347,7 +347,8 @@ func (b *shaderArrayBuilder) buildL1VCaches(sa *shaderArray) {
 	builder := writearound.NewBuilder().
 		WithEngine(b.engine).
 		WithFreq(b.freq).
-		WithBankLatency(60).
+		// WithBankLatency(60).
+		WithBankLatency(10).
 		WithNumBanks(1).
 		WithLog2BlockSize(b.log2CacheLineSize).
 		WithWayAssociativity(4).
@@ -374,7 +375,7 @@ func (b *shaderArrayBuilder) buildL1SReorderBuffer(sa *shaderArray) {
 		WithEngine(b.engine).
 		WithFreq(b.freq).
 		WithBufferSize(128).
-		WithNumReqPerCycle(4)
+		WithNumReqPerCycle(32)
 
 	name := fmt.Sprintf("%s.L1SROB", b.name)
 	rob := builder.Build(name)

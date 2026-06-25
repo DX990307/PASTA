@@ -57,6 +57,14 @@ var maxNumHopsFlag = flag.Int("max-num-hops", -1,
 	"The maximum number of hops in the network")
 var numMemBankFlag = flag.Int("num-memory-banks", 16,
 	"The maximum number of hops in the network")
+var dramFrequencyMHzFlag = flag.Float64("dram-frequency-mhz", 500,
+	"DRAM controller frequency in MHz.")
+var dramTimingScaleFlag = flag.Float64("dram-timing-scale", 1.0,
+	"Scale detailed DRAM timing cycles. Values below 1 model faster DRAM.")
+var dramCommandQueueSizeFlag = flag.Int("dram-command-queue-size", 8,
+	"DRAM command queue size per memory controller.")
+var dramTransactionQueueSizeFlag = flag.Int("dram-transaction-queue-size", 32,
+	"DRAM transaction queue size per memory controller.")
 var analyszerNameFlag = flag.String("analyzer-Name", "",
 	"The name of the analyzer to use.")
 var analyszerPeriodFlag = flag.Float64("analyzer-period", 0.0,
@@ -92,6 +100,10 @@ var gmmuPTCLSerialLookup = flag.Bool("gmmu-ptcl-serial-lookup", false,
 	"Model non-flex GMMU PTCL lookup as one serial bitmap lookup whose latency is requested bits times gmmu-pte-lookup-latency.")
 var gmmuPTCLLineSize = flag.Int("gmmu-ptcl-line-size", 8,
 	"Number of PTEs per GMMU PTCL line. Valid range is 1..8; smaller values are useful for huge-page-aware PTCL studies.")
+var cuDispatchAlg = flag.String("cu-dispatch-alg", "round-robin",
+	"Workgroup-to-CU dispatch algorithm: round-robin, greedy, partition, or partition-strict. Use partition-strict for PTCL-friendly CU locality.")
+var ptclAlignedAlloc = flag.Bool("ptcl-aligned-alloc", false,
+	"Align allocation starts to gmmu-ptcl-line-size virtual pages so huge-page buffers begin on PTCL line boundaries.")
 var ptwDemandPTEOnly = flag.Bool("ptw-demand-pte-only", false,
 	"Force local GMMU and shared IOMMU/MMU page walkers to return only the demand PTE instead of extra PTCL/cache-line fills.")
 var gmmuIdleIOMMUAssist = flag.Bool("gmmu-idle-iommu-assist", false,
@@ -119,6 +131,13 @@ var log2PageSizeFlag = flag.Uint64("log2-page-size", 12,
 
 func configuredLog2PageSize() uint64 {
 	return *log2PageSizeFlag
+}
+
+func configuredGMMUPTCLLineSize() int {
+	if *gmmuPTCLLineSize < 1 || *gmmuPTCLLineSize > 8 {
+		return 8
+	}
+	return *gmmuPTCLLineSize
 }
 
 // ParseFlag applies the runner flag to runner object
@@ -151,6 +170,7 @@ func (r *Runner) ParseFlag() *Runner {
 			prefix,
 			*translationTraceWindowCycles,
 		)
+		translationtrace.ConfigureAccessPattern(configuredGMMUPTCLLineSize())
 	} else {
 		translationtrace.Configure(false, "", 0)
 	}

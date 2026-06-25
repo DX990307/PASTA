@@ -25,7 +25,16 @@ func (m *mockScheduler) Pause() {
 func (m *mockScheduler) Resume() {
 }
 
+func (m *mockScheduler) StopNewCode() {
+}
+
+func (m *mockScheduler) StartNewCode() {
+}
+
 func (m *mockScheduler) Flush() {
+}
+
+func (m *mockScheduler) removeAllWfFromBuffer(wg *wavefront.WorkGroup) {
 }
 
 type mockDecoder struct {

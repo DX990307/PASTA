@@ -5,6 +5,7 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sarchlab/akita/v3/sim"
 )
@@ -68,12 +69,45 @@ type breakdownStat struct {
 	total uint64
 }
 
+type accessKey struct {
+	component    string
+	deviceID     uint64
+	pid          uint32
+	ptclID       uint64
+	log2PageSize uint64
+	lineSize     int
+}
+
+type accessLineStat struct {
+	bitmap     uint8
+	accesses   uint64
+	firstCycle uint64
+	lastCycle  uint64
+}
+
+type accessSummaryKey struct {
+	scope        string
+	component    string
+	deviceID     string
+	pid          string
+	log2PageSize uint64
+	lineSize     int
+}
+
+type accessSummaryStat struct {
+	lines         uint64
+	totalAccesses uint64
+	totalUsed     uint64
+	hist          [9]uint64
+}
+
 type Tracer struct {
 	sync.Mutex
 
 	enabled      bool
 	windowCycles uint64
 	filePrefix   string
+	ptclLineSize int
 
 	samples map[string]*componentSample
 	windows map[uint64]*windowStat
@@ -81,9 +115,11 @@ type Tracer struct {
 	parent     map[string]string
 	requests   map[string]*requestState
 	breakdowns map[breakdownKey]*breakdownStat
+	accesses   map[accessKey]*accessLineStat
 }
 
 var global = &Tracer{}
+var enabledFast uint32
 
 func Configure(enabled bool, filePrefix string, windowCycles uint64) {
 	global.Lock()
@@ -96,11 +132,25 @@ func Configure(enabled bool, filePrefix string, windowCycles uint64) {
 	global.enabled = enabled
 	global.windowCycles = windowCycles
 	global.filePrefix = filePrefix
+	global.ptclLineSize = defaultPTCLLineSize()
 	global.samples = make(map[string]*componentSample)
 	global.windows = make(map[uint64]*windowStat)
 	global.parent = make(map[string]string)
 	global.requests = make(map[string]*requestState)
 	global.breakdowns = make(map[breakdownKey]*breakdownStat)
+	global.accesses = make(map[accessKey]*accessLineStat)
+	if enabled {
+		atomic.StoreUint32(&enabledFast, 1)
+	} else {
+		atomic.StoreUint32(&enabledFast, 0)
+	}
+}
+
+func ConfigureAccessPattern(ptclLineSize int) {
+	global.Lock()
+	defer global.Unlock()
+
+	global.ptclLineSize = normalizePTCLLineSize(ptclLineSize)
 }
 
 func Enabled() bool {
@@ -326,6 +376,55 @@ func RecordIOMMUToMMU(now sim.VTimeInSec) {
 	event(now, func(stat *windowStat) { stat.iommuToMMU++ })
 }
 
+func RecordPageAccess(
+	now sim.VTimeInSec,
+	component string,
+	pid uint32,
+	deviceID uint64,
+	pageVAddr uint64,
+	log2PageSize uint64,
+) {
+	if atomic.LoadUint32(&enabledFast) == 0 {
+		return
+	}
+
+	global.Lock()
+	defer global.Unlock()
+	if !global.enabled {
+		return
+	}
+
+	lineSize := normalizePTCLLineSize(global.ptclLineSize)
+	if component == "" {
+		component = "unknown"
+	}
+
+	vpn := pageVAddr >> log2PageSize
+	ptclID := vpn / uint64(lineSize)
+	bit := uint(vpn % uint64(lineSize))
+	key := accessKey{
+		component:    component,
+		deviceID:     deviceID,
+		pid:          pid,
+		ptclID:       ptclID,
+		log2PageSize: log2PageSize,
+		lineSize:     lineSize,
+	}
+
+	stat := global.accesses[key]
+	if stat == nil {
+		nowCycle := cycle(now)
+		stat = &accessLineStat{
+			firstCycle: nowCycle,
+			lastCycle:  nowCycle,
+		}
+		global.accesses[key] = stat
+	}
+	stat.bitmap |= uint8(1 << bit)
+	stat.accesses++
+	stat.lastCycle = cycle(now)
+}
+
 func StartRequest(id string) {
 	global.Lock()
 	defer global.Unlock()
@@ -496,7 +595,13 @@ func Dump() error {
 	if err := global.dumpPressureLocked(); err != nil {
 		return err
 	}
-	return global.dumpBreakdownLocked()
+	if err := global.dumpBreakdownLocked(); err != nil {
+		return err
+	}
+	if err := global.dumpPTCLAccessLocked(); err != nil {
+		return err
+	}
+	return global.dumpPTCLAccessSummaryLocked()
 }
 
 func (t *Tracer) dumpPressureLocked() error {
@@ -577,6 +682,191 @@ func (t *Tracer) dumpBreakdownLocked() error {
 	return nil
 }
 
+func (t *Tracer) dumpPTCLAccessLocked() error {
+	name := t.filePrefix + "_ptcl_access.csv"
+	f, err := os.Create(name)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	fmt.Fprintln(f, "component,device_id,pid,ptcl_id,ptcl_base_vaddr,ptcl_line_size,log2_page_size,used_pte_count,used_pte_bitmap,access_count,first_cycle,last_cycle")
+
+	keys := make([]accessKey, 0, len(t.accesses))
+	for key := range t.accesses {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].component != keys[j].component {
+			return keys[i].component < keys[j].component
+		}
+		if keys[i].deviceID != keys[j].deviceID {
+			return keys[i].deviceID < keys[j].deviceID
+		}
+		if keys[i].pid != keys[j].pid {
+			return keys[i].pid < keys[j].pid
+		}
+		if keys[i].log2PageSize != keys[j].log2PageSize {
+			return keys[i].log2PageSize < keys[j].log2PageSize
+		}
+		if keys[i].lineSize != keys[j].lineSize {
+			return keys[i].lineSize < keys[j].lineSize
+		}
+		return keys[i].ptclID < keys[j].ptclID
+	})
+
+	for _, key := range keys {
+		stat := t.accesses[key]
+		baseVAddr := (key.ptclID * uint64(key.lineSize)) << key.log2PageSize
+		fmt.Fprintf(
+			f,
+			"%s,%d,%d,%d,0x%x,%d,%d,%d,0x%02x,%d,%d,%d\n",
+			key.component,
+			key.deviceID,
+			key.pid,
+			key.ptclID,
+			baseVAddr,
+			key.lineSize,
+			key.log2PageSize,
+			countBits8(stat.bitmap),
+			stat.bitmap,
+			stat.accesses,
+			stat.firstCycle,
+			stat.lastCycle,
+		)
+	}
+
+	return nil
+}
+
+func (t *Tracer) dumpPTCLAccessSummaryLocked() error {
+	name := t.filePrefix + "_ptcl_access_summary.csv"
+	f, err := os.Create(name)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	summaries := make(map[accessSummaryKey]*accessSummaryStat)
+	for key, line := range t.accesses {
+		used := countBits8(line.bitmap)
+		if used < 0 {
+			used = 0
+		}
+		if used > 8 {
+			used = 8
+		}
+
+		addAccessSummary(
+			summaries,
+			accessSummaryKey{
+				scope:        "cu",
+				component:    key.component,
+				deviceID:     fmt.Sprintf("%d", key.deviceID),
+				pid:          fmt.Sprintf("%d", key.pid),
+				log2PageSize: key.log2PageSize,
+				lineSize:     key.lineSize,
+			},
+			used,
+			line.accesses,
+		)
+		addAccessSummary(
+			summaries,
+			accessSummaryKey{
+				scope:        "all",
+				component:    "ALL",
+				deviceID:     "all",
+				pid:          "all",
+				log2PageSize: key.log2PageSize,
+				lineSize:     key.lineSize,
+			},
+			used,
+			line.accesses,
+		)
+	}
+
+	fmt.Fprintln(f, "scope,component,device_id,pid,ptcl_line_size,log2_page_size,ptcl_line_count,total_accesses,avg_used_pte_per_line,p50_used_pte,p90_used_pte,p99_used_pte,full_line_fraction,single_pte_fraction,used_1_lines,used_2_lines,used_3_lines,used_4_lines,used_5_lines,used_6_lines,used_7_lines,used_8_lines")
+
+	keys := make([]accessSummaryKey, 0, len(summaries))
+	for key := range summaries {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].scope != keys[j].scope {
+			return keys[i].scope < keys[j].scope
+		}
+		if keys[i].component != keys[j].component {
+			return keys[i].component < keys[j].component
+		}
+		if keys[i].deviceID != keys[j].deviceID {
+			return keys[i].deviceID < keys[j].deviceID
+		}
+		if keys[i].pid != keys[j].pid {
+			return keys[i].pid < keys[j].pid
+		}
+		if keys[i].log2PageSize != keys[j].log2PageSize {
+			return keys[i].log2PageSize < keys[j].log2PageSize
+		}
+		return keys[i].lineSize < keys[j].lineSize
+	})
+
+	for _, key := range keys {
+		stat := summaries[key]
+		fullLineFraction := 0.0
+		singlePTEFraction := 0.0
+		if stat.lines > 0 {
+			fullLineFraction = float64(stat.hist[key.lineSize]) / float64(stat.lines)
+			singlePTEFraction = float64(stat.hist[1]) / float64(stat.lines)
+		}
+
+		fmt.Fprintf(
+			f,
+			"%s,%s,%s,%s,%d,%d,%d,%d,%.6f,%d,%d,%d,%.6f,%.6f,%d,%d,%d,%d,%d,%d,%d,%d\n",
+			key.scope,
+			key.component,
+			key.deviceID,
+			key.pid,
+			key.lineSize,
+			key.log2PageSize,
+			stat.lines,
+			stat.totalAccesses,
+			avgUint(stat.totalUsed, stat.lines),
+			percentileUsed(stat.hist, stat.lines, 50),
+			percentileUsed(stat.hist, stat.lines, 90),
+			percentileUsed(stat.hist, stat.lines, 99),
+			fullLineFraction,
+			singlePTEFraction,
+			stat.hist[1],
+			stat.hist[2],
+			stat.hist[3],
+			stat.hist[4],
+			stat.hist[5],
+			stat.hist[6],
+			stat.hist[7],
+			stat.hist[8],
+		)
+	}
+
+	return nil
+}
+
+func addAccessSummary(
+	summaries map[accessSummaryKey]*accessSummaryStat,
+	key accessSummaryKey,
+	used int,
+	accesses uint64,
+) {
+	stat := summaries[key]
+	if stat == nil {
+		stat = &accessSummaryStat{}
+		summaries[key] = stat
+	}
+	stat.lines++
+	stat.totalAccesses += accesses
+	stat.totalUsed += uint64(used)
+	stat.hist[used]++
+}
+
 func avgFloat(total float64, count uint64) float64 {
 	if count == 0 {
 		return 0
@@ -589,4 +879,44 @@ func avgUint(total uint64, count uint64) float64 {
 		return 0
 	}
 	return float64(total) / float64(count)
+}
+
+func percentileUsed(hist [9]uint64, lines uint64, percentile uint64) int {
+	if lines == 0 {
+		return 0
+	}
+
+	rank := (lines*percentile + 99) / 100
+	if rank == 0 {
+		rank = 1
+	}
+
+	var seen uint64
+	for used := 0; used < len(hist); used++ {
+		seen += hist[used]
+		if seen >= rank {
+			return used
+		}
+	}
+	return len(hist) - 1
+}
+
+func countBits8(value uint8) int {
+	count := 0
+	for value != 0 {
+		count += int(value & 1)
+		value >>= 1
+	}
+	return count
+}
+
+func defaultPTCLLineSize() int {
+	return 8
+}
+
+func normalizePTCLLineSize(lineSize int) int {
+	if lineSize < 1 || lineSize > 8 {
+		return defaultPTCLLineSize()
+	}
+	return lineSize
 }

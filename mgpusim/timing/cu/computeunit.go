@@ -159,7 +159,8 @@ func (cu *ComputeUnit) stopTimeModel(now sim.VTimeInSec) {
 		return
 	}
 
-	if *sampledrunner.SampledRunnerFlag {
+	if *sampledrunner.SampledRunnerFlag &&
+		!sampledrunner.FixedScheduleEnabled() {
 		sampledEngine := sampledrunner.SampledEngineForGPU(cu.GPUID)
 		if sampledEngine != nil {
 			predTime, enableSampled := sampledEngine.Predict()
@@ -180,7 +181,8 @@ func (cu *ComputeUnit) stopTimeModel(now sim.VTimeInSec) {
 		}
 	}
 
-	if *sampledrunner.BranchSampledFlag {
+	if *sampledrunner.BranchSampledFlag &&
+		!sampledrunner.FixedScheduleEnabled() {
 		branchEngine := sampledrunner.BranchSampledEngineForGPU(cu.GPUID)
 		sampledComputeUnit := emu.SampledComputeUnitForGPU(cu.GPUID)
 		if branchEngine == nil ||
@@ -541,7 +543,9 @@ func (cu *ComputeUnit) handleMapWGReq(
 		skipCount := 0
 		wfPredTime := sim.VTimeInSec(0)
 		wfSampled := false
-		if *sampledrunner.SampledRunnerFlag && sampledEngine != nil {
+		if *sampledrunner.SampledRunnerFlag &&
+			!sampledrunner.FixedScheduleEnabled() &&
+			sampledEngine != nil {
 			wfPredTime, wfSampled = sampledEngine.Predict()
 		}
 
@@ -596,6 +600,7 @@ func (cu *ComputeUnit) handleMapWGReq(
 		branchEngine != nil &&
 		sampledTimeEngine != nil &&
 		sampledComputeUnit != nil &&
+		!sampledrunner.FixedScheduleEnabled() &&
 		branchEngine.EnableSampled() {
 		sampledrunner.PhotonDebugf(
 			fmt.Sprintf("GPU%d.CU", cu.GPUID),

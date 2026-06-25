@@ -39,6 +39,8 @@ type R9NanoPlatformBuilder struct {
 	bandwidth             int
 	switchLatency         int
 	maxNumHops            int
+	cuDispatchAlg         string
+	allocationAlignPages  int
 
 	engine       sim.Engine
 	visTracer    tracing.Tracer
@@ -69,6 +71,7 @@ func MakeR9NanoBuilder() R9NanoPlatformBuilder {
 		numSAPerGPU:       8,
 		numCUPerSA:        4,
 		maxNumHops:        -1,
+		cuDispatchAlg:     "round-robin",
 	}
 	return b
 }
@@ -166,6 +169,20 @@ func (b R9NanoPlatformBuilder) WithMaxNumHops(
 	return b
 }
 
+func (b R9NanoPlatformBuilder) WithCUDispatchAlg(
+	alg string,
+) R9NanoPlatformBuilder {
+	b.cuDispatchAlg = alg
+	return b
+}
+
+func (b R9NanoPlatformBuilder) WithAllocationAlignmentPages(
+	pages int,
+) R9NanoPlatformBuilder {
+	b.allocationAlignPages = pages
+	return b
+}
+
 // Build builds a platform with R9Nano GPUs.
 func (b R9NanoPlatformBuilder) Build(numMemoryBank int) *Platform {
 	b.engine = b.createEngine()
@@ -210,6 +227,7 @@ func (b R9NanoPlatformBuilder) Build(numMemoryBank int) *Platform {
 		WithEngine(b.engine).
 		WithPageTable(pageTable).
 		WithLog2PageSize(b.log2PageSize).
+		WithAllocationAlignmentPages(b.allocationAlignPages).
 		WithGlobalStorage(b.globalStorage).
 		WithMemorySize(8 * mem.GB).
 		Build("Driver")
@@ -443,6 +461,7 @@ func (b *R9NanoPlatformBuilder) createGPUBuilder(
 		WithL2CacheSize(4 * mem.MB).
 		WithLog2MemoryBankInterleavingSize(7).
 		WithLog2PageSize(b.log2PageSize).
+		WithCUDispatchAlg(b.cuDispatchAlg).
 		WithGlobalStorage(b.globalStorage).
 		WithPerfAnalyzer(b.perfAnalyzer).
 		WithGMMUPageTable(pageTable)

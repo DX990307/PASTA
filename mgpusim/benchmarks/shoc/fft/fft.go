@@ -89,8 +89,8 @@ func (b *Benchmark) Run() {
 }
 
 func (b *Benchmark) initMem() {
-	b.Bytes = b.Bytes * 1024 * 1024
-	b.halfNFfts = b.Bytes / (512 * 4 * 2 * 2)
+	bytes := int64(b.Bytes) * 1024 * 1024
+	b.halfNFfts = int32(bytes / (512 * 4 * 2 * 2))
 	b.nFfts = b.halfNFfts * 2
 	b.halfNCmplx = b.halfNFfts * 512
 	b.usedBytes = uint64(b.halfNCmplx) * 2 * 4 * 2
