@@ -333,7 +333,7 @@ func (r *Runner) reportGMMUCacheHitRate() {
 			idleAssistEnabledFloat = 1.0
 		}
 		ptwDemandPTEOnlyFloat := 0.0
-		if *ptwDemandPTEOnly {
+		if configuredPTWDemandPTEOnly() {
 			ptwDemandPTEOnlyFloat = 1.0
 		}
 

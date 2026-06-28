@@ -42,6 +42,41 @@ EXPERIMENTAL_BENCHMARKS = [
     "matrixmultiplication-ptw-heavy",
 ]
 
+HELIOSTAT_REQUESTED_BENCHMARKS = [
+    "lu",
+    "j2d",
+    "fdtd2d",
+    "matr",
+    "gups",
+    "gesm",
+]
+
+HELIOSTAT_NEW_HUGEPAGE_BENCHMARKS = [
+    "lu",
+    "j2d",
+    "fdtd2d",
+    "gups",
+    "gesm",
+]
+
+HUGEPAGE_CURRENT_BENCHMARKS = [
+    "fir",
+    "spmv",
+    "bitonicsort",
+    "im2col",
+    "floydwarshall",
+    "aes",
+    "relu",
+    "matrixmultiplication-ptw",
+    "matrixtranspose",
+    "fastwalshtransform",
+    "fft",
+    "kmeans",
+    "pagerank",
+    "simpleconvolution",
+    *HELIOSTAT_NEW_HUGEPAGE_BENCHMARKS,
+]
+
 REMOVED_MONOLITHIC_LLM_BENCHMARKS = {
     "bert",
     "gpt",
@@ -51,28 +86,32 @@ REMOVED_MONOLITHIC_LLM_BENCHMARKS = {
 }
 
 ALL_BENCHMARKS = list(dict.fromkeys(
-    TRADITIONAL_BENCHMARKS + EXPERIMENTAL_BENCHMARKS
+    TRADITIONAL_BENCHMARKS
+    + EXPERIMENTAL_BENCHMARKS
+    + HELIOSTAT_REQUESTED_BENCHMARKS
+    + HUGEPAGE_CURRENT_BENCHMARKS
 ))
 
 DEFAULT_RUN_BENCHMARKS = [
     # Edit this list to control the default run set when --benchmarks is omitted.
     # Comment out any workload you do not want in the default sweep.
+    "fir",
+    "spmv",
+    "relu",
     "bitonicsort",
     "im2col",
     "floydwarshall",
     "aes",
-    "relu",
-    "spmv",
     "matrixmultiplication-ptw",
     # "matrixmultiplication",
-    "matrixtranspose",
+    # "matrixtranspose",
     "fastwalshtransform",
     "fft",
     "kmeans",
     "im2col",
     "pagerank",
     "simpleconvolution",
-    "fir",
+
     # "resnet",
     # "llmop",
     # "llminference",
@@ -84,6 +123,8 @@ BENCHMARK_ALIASES = {
     "traditional": TRADITIONAL_BENCHMARKS,
     "llm": ["llmop"],
     "experimental": EXPERIMENTAL_BENCHMARKS,
+    "heliostat-requested": HELIOSTAT_REQUESTED_BENCHMARKS,
+    "hugepage-current": HUGEPAGE_CURRENT_BENCHMARKS,
 }
 
 
@@ -98,6 +139,17 @@ DEFAULT_BENCHMARK_FLAGS = [
     # "-max-wg=157200",
     "-max-wg=76800",
     # "-max-wg=38400",
+]
+
+HUGEPAGE_20260626_BENCHMARK_FLAGS = [
+    "-ptcl-aligned-alloc",
+    "-cu-dispatch-alg=partition-strict",
+    "-dram-frequency-mhz=500.0",
+    "-dram-timing-scale=1.0",
+    "-dram-command-queue-size=8",
+    "-dram-transaction-queue-size=32",
+    "-mmutlb-set-as-line-threshold-low=4",
+    "-mmutlb-set-as-line-threshold-high=16",
 ]
 
 BASE_COMMON_FLAGS = [
@@ -202,7 +254,7 @@ output_dir = ""
 
 
 
-def parse_args():
+def parse_args(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--only-config",
@@ -263,6 +315,100 @@ def parse_args():
         dest="extra_benchmark_flags",
         default="",
         help="Additional flags appended to each benchmark binary command.",
+    )
+    parser.add_argument(
+        "--hugepage-20260626-flags",
+        "--hugepage-paper-flags",
+        dest="hugepage_20260626_flags",
+        action="store_true",
+        help=(
+            "Append the benchmark binary flag preset used by the "
+            "2026-06-26 huge-page sweep: PTCL-aligned allocation, strict "
+            "partition CU dispatch, DRAM timing, and MMUTLB threshold knobs."
+        ),
+    )
+    parser.add_argument(
+        "--cu-dispatch-strict-chunk-size",
+        dest="cu_dispatch_strict_chunk_size",
+        type=int,
+        default=None,
+        help=(
+            "Append -cu-dispatch-strict-chunk-size to all benchmark binary "
+            "commands. Use 0 to restore one large strict partition per CU."
+        ),
+    )
+    parser.add_argument(
+        "--cu-dispatch-strict-chunk-size-benchmarks",
+        dest="cu_dispatch_strict_chunk_size_benchmarks",
+        default="",
+        help=(
+            "Comma-separated benchmark-specific chunk sizes for "
+            "partition-strict on non-baseline configs, e.g. spmv:8,fir:16. "
+            "Benchmark presets are allowed on the left side."
+        ),
+    )
+    parser.add_argument(
+        "--demand-only-benchmarks",
+        dest="demand_only_benchmarks",
+        default="",
+        help=(
+            "Comma-separated benchmark list or preset. For non-baseline "
+            "configs, append PTW/MMUTLB demand-PTE-only flags to these "
+            "benchmarks."
+        ),
+    )
+    parser.add_argument(
+        "--no-iommutlb-flex-benchmarks",
+        dest="no_iommutlb_flex_benchmarks",
+        default="",
+        help=(
+            "Comma-separated benchmark list or preset. For non-baseline "
+            "configs, remove -mmutlb-flex-tlb from these benchmarks."
+        ),
+    )
+    parser.add_argument(
+        "--vanilla-pasta-benchmarks",
+        dest="vanilla_pasta_benchmarks",
+        default="",
+        help=(
+            "Comma-separated benchmark list or preset. For the pasta config "
+            "only, leave these benchmarks as vanilla PASTA by stripping "
+            "huge-page tuning flags such as PTCL-aligned allocation, strict "
+            "CU dispatch, demand-only PTW/MMUTLB, and benchmark chunk-size "
+            "overrides."
+        ),
+    )
+    parser.add_argument(
+        "--pasta-ptcl-alloc-only-benchmarks",
+        dest="pasta_ptcl_alloc_only_benchmarks",
+        default="",
+        help=(
+            "Comma-separated benchmark list or preset. For the pasta config "
+            "only, run these benchmarks as vanilla PASTA plus "
+            "-ptcl-aligned-alloc, stripping strict CU dispatch, demand-only "
+            "PTW/MMUTLB, IOMMUTLB-Flex removal, DRAM tuning, and benchmark "
+            "chunk-size overrides."
+        ),
+    )
+    parser.add_argument(
+        "--pasta-ptcl-alloc-demand-only-benchmarks",
+        dest="pasta_ptcl_alloc_demand_only_benchmarks",
+        default="",
+        help=(
+            "Comma-separated benchmark list or preset. For the pasta config "
+            "only, run these benchmarks with vanilla GMMU Flex plus "
+            "-ptcl-aligned-alloc and demand-only PTW/MMUTLB, while stripping "
+            "IOMMUTLB Flex/set-as-line, strict CU dispatch, DRAM tuning, "
+            "and benchmark chunk-size overrides."
+        ),
+    )
+    parser.add_argument(
+        "--ptcl-aligned-alloc",
+        action="store_true",
+        help=(
+            "Append -ptcl-aligned-alloc to benchmark commands so allocation "
+            "starts align to the configured GMMU PTCL line size."
+        ),
     )
     parser.add_argument(
         "--max-wg",
@@ -478,7 +624,7 @@ def parse_args():
             "Exact PTCL locator rows per PCD set. 0 uses ceil(GMMU TLB ways / 8)."
         ),
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
 def parse_csv(value):
@@ -524,6 +670,31 @@ def expand_benchmark_selection(selected):
             + ". Use runllm_decomposed.py for BERT/GPT experiments."
         )
     return unique_preserving_order(expanded)
+
+
+def parse_benchmark_int_overrides(raw_value, label):
+    overrides = {}
+    for item in parse_csv(raw_value):
+        if ":" in item:
+            names, value = item.split(":", 1)
+        elif "=" in item:
+            names, value = item.split("=", 1)
+        else:
+            raise ValueError(
+                f"invalid {label} override '{item}', expected benchmark:value"
+            )
+
+        size = int(value.strip())
+        if size < 0:
+            raise ValueError(f"{label} values must be non-negative: {item}")
+
+        benchmarks = expand_benchmark_selection(parse_csv(names))
+        if not benchmarks:
+            raise ValueError(f"empty benchmark list in {label} override: {item}")
+        for benchmark in benchmarks:
+            overrides[benchmark] = size
+
+    return overrides
 
 
 def parse_threshold_pairs(raw_pairs):
@@ -822,11 +993,109 @@ def get_selected_benchmarks(args, target):
     return selected
 
 
+def get_benchmark_set(raw_value, label):
+    if not raw_value:
+        return set()
+
+    selected = expand_benchmark_selection(parse_csv(raw_value))
+    unknown = sorted(set(selected) - set(ALL_BENCHMARKS))
+    if unknown:
+        raise ValueError(f"unknown {label} benchmarks: {unknown}")
+    return set(selected)
+
+
+def get_demand_only_benchmarks(args):
+    return get_benchmark_set(args.demand_only_benchmarks, "demand-only")
+
+
+def get_no_iommutlb_flex_benchmarks(args):
+    return get_benchmark_set(
+        args.no_iommutlb_flex_benchmarks,
+        "no-IOMMUTLB-Flex",
+    )
+
+
+def get_vanilla_pasta_benchmarks(args):
+    return get_benchmark_set(args.vanilla_pasta_benchmarks, "vanilla PASTA")
+
+
+def get_pasta_ptcl_alloc_only_benchmarks(args):
+    return get_benchmark_set(
+        args.pasta_ptcl_alloc_only_benchmarks,
+        "PASTA PTCL allocation-only",
+    )
+
+
+def get_pasta_ptcl_alloc_demand_only_benchmarks(args):
+    return get_benchmark_set(
+        args.pasta_ptcl_alloc_demand_only_benchmarks,
+        "PASTA PTCL allocation demand-only",
+    )
+
+
+def is_vanilla_pasta_benchmark(args, benchmark, config_name):
+    return (
+        config_name == "pasta" and
+        benchmark in get_vanilla_pasta_benchmarks(args)
+    )
+
+
+def is_pasta_ptcl_alloc_only_benchmark(args, benchmark, config_name):
+    return (
+        config_name == "pasta" and
+        benchmark in get_pasta_ptcl_alloc_only_benchmarks(args)
+    )
+
+
+def is_pasta_ptcl_alloc_demand_only_benchmark(args, benchmark, config_name):
+    return (
+        config_name == "pasta" and
+        benchmark in get_pasta_ptcl_alloc_demand_only_benchmarks(args)
+    )
+
+
+def is_pasta_tuning_override_benchmark(args, benchmark, config_name):
+    return (
+        is_vanilla_pasta_benchmark(args, benchmark, config_name) or
+        is_pasta_ptcl_alloc_only_benchmark(args, benchmark, config_name) or
+        is_pasta_ptcl_alloc_demand_only_benchmark(
+            args,
+            benchmark,
+            config_name,
+        )
+    )
+
+
 def strip_disable_server_flags(flags):
     return [
         flag for flag in flags
         if flag not in ("-disable-servers", "--disable-servers")
     ]
+
+
+def preset_benchmark_flags(args):
+    flags = []
+    if args.hugepage_20260626_flags:
+        flags += HUGEPAGE_20260626_BENCHMARK_FLAGS
+    return flags
+
+
+def is_iommutlb_flex_flag(flag):
+    flag_key = flag.split("=", 1)[0]
+    return flag_key in {
+        "-mmutlb-flex-tlb",
+        "--mmutlb-flex-tlb",
+    }
+
+
+def strip_iommutlb_flex_flags(args, benchmark, config_name, flags):
+    if config_name == "baseline":
+        return flags
+    if is_pasta_tuning_override_benchmark(args, benchmark, config_name):
+        return flags
+    if benchmark not in get_no_iommutlb_flex_benchmarks(args):
+        return flags
+    return [flag for flag in flags if not is_iommutlb_flex_flag(flag)]
 
 
 def has_flag_with_prefix(flags, prefix):
@@ -836,6 +1105,130 @@ def has_flag_with_prefix(flags, prefix):
 def append_unique_flag(flags, flag):
     if flag not in flags:
         flags.append(flag)
+
+
+def append_unique_flags(flags, additions):
+    for flag in additions:
+        append_unique_flag(flags, flag)
+    return flags
+
+
+def add_benchmark_demand_only_flags(args, benchmark, config_name, flags):
+    if config_name == "baseline":
+        return flags
+    if is_pasta_tuning_override_benchmark(args, benchmark, config_name):
+        return flags
+    if benchmark not in get_demand_only_benchmarks(args):
+        return flags
+
+    return append_unique_flags(flags, [
+        "-ptw-demand-pte-only",
+        "-mmutlb-demand-pte-only",
+    ])
+
+
+def add_ptcl_aligned_alloc_flag(args, benchmark, config_name, flags):
+    if is_pasta_tuning_override_benchmark(args, benchmark, config_name):
+        return flags
+    if not args.ptcl_aligned_alloc:
+        return flags
+    return append_unique_flags(flags, ["-ptcl-aligned-alloc"])
+
+
+def add_strict_partition_chunk_size_flag(
+    args,
+    benchmark,
+    config_name,
+    flags,
+    overrides,
+):
+    if is_pasta_tuning_override_benchmark(args, benchmark, config_name):
+        return flags
+    chunk_size = args.cu_dispatch_strict_chunk_size
+    if config_name != "baseline":
+        chunk_size = overrides.get(benchmark, chunk_size)
+    if chunk_size is None:
+        return flags
+    flags.append(
+        f"-cu-dispatch-strict-chunk-size={chunk_size}"
+    )
+    return flags
+
+
+VANILLA_PASTA_STRIP_FLAG_KEYS = {
+    "-cu-dispatch-alg",
+    "--cu-dispatch-alg",
+    "-cu-dispatch-strict-chunk-size",
+    "--cu-dispatch-strict-chunk-size",
+    "-dram-command-queue-size",
+    "--dram-command-queue-size",
+    "-dram-frequency-mhz",
+    "--dram-frequency-mhz",
+    "-dram-timing-scale",
+    "--dram-timing-scale",
+    "-dram-transaction-queue-size",
+    "--dram-transaction-queue-size",
+    "-gmmu-ptcl-set-lookup-demand-only",
+    "--gmmu-ptcl-set-lookup-demand-only",
+    "-mmutlb-demand-pte-only",
+    "--mmutlb-demand-pte-only",
+    "-mmutlb-set-as-line-demand-only",
+    "--mmutlb-set-as-line-demand-only",
+    "-mmutlb-set-as-line-threshold-high",
+    "--mmutlb-set-as-line-threshold-high",
+    "-mmutlb-set-as-line-threshold-low",
+    "--mmutlb-set-as-line-threshold-low",
+    "-ptcl-aligned-alloc",
+    "--ptcl-aligned-alloc",
+    "-ptw-demand-pte-only",
+    "--ptw-demand-pte-only",
+}
+
+
+IOMMUTLB_FLEX_FLAG_KEYS = {
+    "-mmutlb-flex-tlb",
+    "--mmutlb-flex-tlb",
+}
+
+
+def strip_pasta_tuning_override_flags(args, benchmark, config_name, flags):
+    if not is_pasta_tuning_override_benchmark(args, benchmark, config_name):
+        return flags
+
+    stripped = []
+    for flag in flags:
+        flag_key = flag.split("=", 1)[0]
+        if flag_key in VANILLA_PASTA_STRIP_FLAG_KEYS:
+            continue
+        if (
+            is_pasta_ptcl_alloc_demand_only_benchmark(
+                args,
+                benchmark,
+                config_name,
+            ) and
+            flag_key in IOMMUTLB_FLEX_FLAG_KEYS
+        ):
+            continue
+        stripped.append(flag)
+    if (
+        is_pasta_ptcl_alloc_only_benchmark(args, benchmark, config_name) or
+        is_pasta_ptcl_alloc_demand_only_benchmark(
+            args,
+            benchmark,
+            config_name,
+        )
+    ):
+        append_unique_flag(stripped, "-ptcl-aligned-alloc")
+    if is_pasta_ptcl_alloc_demand_only_benchmark(
+        args,
+        benchmark,
+        config_name,
+    ):
+        append_unique_flags(stripped, [
+            "-ptw-demand-pte-only",
+            "-mmutlb-demand-pte-only",
+        ])
+    return stripped
 
 
 def selected_global_photon_flags(args):
@@ -895,14 +1288,50 @@ def default_benchmark_flags(args):
 
 def make_exps(args, ablation_configs):
     exps = []
-    extra_flags = strip_disable_server_flags(shlex.split(args.extra_benchmark_flags))
+    extra_flags = strip_disable_server_flags(
+        preset_benchmark_flags(args) + shlex.split(args.extra_benchmark_flags)
+    )
+    strict_chunk_overrides = parse_benchmark_int_overrides(
+        args.cu_dispatch_strict_chunk_size_benchmarks,
+        "strict partition chunk-size",
+    )
     for target in TARGETS:
         for benchmark in get_selected_benchmarks(args, target):
             for config_name, config_flags in ablation_configs:
                 flags = (
                     default_benchmark_flags(args)
                     + extra_flags
-                    + strip_disable_server_flags(config_flags)
+                    + strip_iommutlb_flex_flags(
+                        args,
+                        benchmark,
+                        config_name,
+                        strip_disable_server_flags(config_flags),
+                    )
+                )
+                flags = add_benchmark_demand_only_flags(
+                    args,
+                    benchmark,
+                    config_name,
+                    flags,
+                )
+                flags = add_ptcl_aligned_alloc_flag(
+                    args,
+                    benchmark,
+                    config_name,
+                    flags,
+                )
+                flags = add_strict_partition_chunk_size_flag(
+                    args,
+                    benchmark,
+                    config_name,
+                    flags,
+                    strict_chunk_overrides,
+                )
+                flags = strip_pasta_tuning_override_flags(
+                    args,
+                    benchmark,
+                    config_name,
+                    flags,
                 )
                 flags = add_global_photon_flags(args, flags)
                 exps.append(
@@ -951,8 +1380,9 @@ def build_targets(exps):
 
 
 def exp_file_stem(exp):
+    results_dir = exp.get("results_dir", output_dir)
     return os.path.join(
-        output_dir,
+        results_dir,
         f'{exp["target"]}_{exp["benchmark"]}_{exp["config_name"]}',
     )
 
@@ -1318,40 +1748,7 @@ def create_output_dir():
         os.makedirs(output_dir)
 
 
-def main():
-    global output_dir
-
-    args = parse_args()
-    common_flags = build_common_flags(args)
-    ablation_configs = build_ablation_configs(args)
-    if args.only_config:
-        ablation_configs = [c for c in ablation_configs if c[0] == args.only_config]
-        if not ablation_configs:
-            raise ValueError(f"no ablation config named '{args.only_config}'")
-    exps = make_exps(args, ablation_configs)
-    if not exps:
-        print("No experiments configured.")
-        return
-
-    if args.rerun_missing:
-        output_dir = os.path.abspath(args.rerun_missing)
-        if not os.path.isdir(output_dir):
-            raise ValueError(f"results directory does not exist: {output_dir}")
-        exps = filter_missing_metric_exps(exps, output_dir)
-        if not exps:
-            print(f"No missing-metrics experiments found in {output_dir}")
-            return
-        print(
-            f"Rerunning {len(exps)} experiments with missing metrics in {output_dir}"
-        )
-    else:
-        create_output_dir()
-
-    timeout_seconds = int(args.timeout_minutes * 60)
-    for exp in exps:
-        exp["common_flags"] = common_flags
-        exp["timeout_seconds"] = timeout_seconds
-
+def validate_args(args):
     if args.max_workers < 0:
         raise ValueError("--max-workers must be non-negative")
     if args.max_workloads <= 0:
@@ -1371,7 +1768,49 @@ def main():
     if args.memory_scan_interval_minutes <= 0:
         raise ValueError("--memory-scan-interval-minutes must be greater than 0")
 
-    print(f"Using common flags: {shlex.join(common_flags)}")
+
+def configured_experiments(args):
+    ablation_configs = build_ablation_configs(args)
+    if args.only_config:
+        ablation_configs = [c for c in ablation_configs if c[0] == args.only_config]
+        if not ablation_configs:
+            raise ValueError(f"no ablation config named '{args.only_config}'")
+
+    return make_exps(args, ablation_configs)
+
+
+def prepare_experiments(args, exps, common_flags=None):
+    if common_flags is None:
+        common_flags = build_common_flags(args)
+    timeout_seconds = int(args.timeout_minutes * 60)
+    for exp in exps:
+        exp["common_flags"] = common_flags
+        exp["timeout_seconds"] = timeout_seconds
+
+    return exps
+
+
+def run_experiment_queue(args, exps, common_flags=None):
+    validate_args(args)
+    common_flags = common_flags or build_common_flags(args)
+    if any(
+        "common_flags" not in exp or "timeout_seconds" not in exp
+        for exp in exps
+    ):
+        prepare_experiments(args, exps, common_flags)
+
+    common_flag_sets = {
+        tuple(exp.get("common_flags", []))
+        for exp in exps
+    }
+    if len(common_flag_sets) == 1:
+        print(f"Using common flags: {shlex.join(next(iter(common_flag_sets)))}")
+    else:
+        print(
+            "Using mixed common flags across experiments "
+            f"({len(common_flag_sets)} variants)",
+            flush=True,
+        )
     if args.photon:
         photon_defaults = selected_global_photon_flags(args)
         append_default_photon_tuning_flags(args, photon_defaults)
@@ -1385,6 +1824,32 @@ def main():
 
     build_targets(exps)
     memory_gated_run(exps, args)
+
+
+def main():
+    global output_dir
+
+    args = parse_args()
+    exps = configured_experiments(args)
+    if not exps:
+        print("No experiments configured.")
+        return
+
+    if args.rerun_missing:
+        output_dir = os.path.abspath(args.rerun_missing)
+        if not os.path.isdir(output_dir):
+            raise ValueError(f"results directory does not exist: {output_dir}")
+        exps = filter_missing_metric_exps(exps, output_dir)
+        if not exps:
+            print(f"No missing-metrics experiments found in {output_dir}")
+            return
+        print(
+            f"Rerunning {len(exps)} experiments with missing metrics in {output_dir}"
+        )
+    else:
+        create_output_dir()
+
+    run_experiment_queue(args, exps)
 
 
 if __name__ == "__main__":

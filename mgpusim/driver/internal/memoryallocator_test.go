@@ -83,6 +83,40 @@ var _ = Describe("MemoryAllocatorImpl", func() {
 		Expect(ptr).To(Equal(uint64(4096)))
 	})
 
+	It("should align allocation starts to configured page groups", func() {
+		allocator = NewMemoryAllocatorWithAllocationAlignment(
+			pageTable, 12, 8,
+		).(*memoryAllocatorImpl)
+		configAFourGPUSystem(allocator)
+
+		pageTable.EXPECT().Insert(
+			vm.Page{
+				PID:       1,
+				PAddr:     0x1_0000_1000,
+				VAddr:     0x8000,
+				PageSize:  4096,
+				DeviceID:  1,
+				Valid:     true,
+				PageBlock: 1,
+			})
+		pageTable.EXPECT().Insert(
+			vm.Page{
+				PID:       1,
+				PAddr:     0x1_0000_2000,
+				VAddr:     0x10000,
+				PageSize:  4096,
+				DeviceID:  1,
+				Valid:     true,
+				PageBlock: 1,
+			})
+
+		ptr := allocator.Allocate(1, 8, 1)
+		Expect(ptr).To(Equal(uint64(0x8000)))
+
+		ptr = allocator.Allocate(1, 8, 1)
+		Expect(ptr).To(Equal(uint64(0x10000)))
+	})
+
 	It("should remap page to another device", func() {
 		page := vm.Page{
 			PID:       1,

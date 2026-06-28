@@ -118,4 +118,51 @@ var _ = Describe("Partition Algorithm", func() {
 		Expect(alg.currWGs[0]).To(BeNil())
 		Expect(alg.numDispatchedWG).To(Equal(1))
 	})
+
+	It("should rotate strict partitions by contiguous chunks", func() {
+		dispatched := make([]int, 0)
+		for i := range cus {
+			cuID := i
+			cus[i].EXPECT().
+				ReserveResourceForWG(gomock.Any()).
+				DoAndReturn(func(wg *kernels.WorkGroup) (
+					[]resource.WfLocation,
+					bool,
+				) {
+					dispatched = append(dispatched, cuID*100+wg.IDX)
+					return []resource.WfLocation{}, true
+				}).
+				AnyTimes()
+		}
+
+		alg = &partitionAlgorithm{
+			cuPool:              pool,
+			disableWorkStealing: true,
+			strictChunkSize:     2,
+		}
+		alg.StartNewKernel(kernels.KernelLaunchInfo{
+			Packet: &kernels.HsaKernelDispatchPacket{
+				GridSizeX:      12,
+				GridSizeY:      1,
+				GridSizeZ:      1,
+				WorkgroupSizeX: 1,
+				WorkgroupSizeY: 1,
+				WorkgroupSizeZ: 1,
+			},
+		})
+
+		for i := 0; i < 12; i++ {
+			location := alg.Next()
+			Expect(location.valid).To(BeTrue())
+		}
+
+		Expect(dispatched).To(Equal([]int{
+			0, 102,
+			1, 103,
+			4, 106,
+			5, 107,
+			8, 110,
+			9, 111,
+		}))
+	})
 })

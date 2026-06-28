@@ -15,20 +15,24 @@ import (
 
 // Builder can build Command Processors
 type Builder struct {
-	freq           sim.Freq
-	engine         sim.Engine
-	gpuID          uint64
-	visTracer      tracing.Tracer
-	monitor        *monitoring.Monitor
-	perfAnalyzer   *analysis.PerfAnalyzer
-	numDispatchers int
+	freq            sim.Freq
+	engine          sim.Engine
+	gpuID           uint64
+	visTracer       tracing.Tracer
+	monitor         *monitoring.Monitor
+	perfAnalyzer    *analysis.PerfAnalyzer
+	numDispatchers  int
+	dispatchingAlg  string
+	strictChunkSize int
 }
 
 // MakeBuilder creates a new builder with default configuration values.
 func MakeBuilder() Builder {
 	b := Builder{
-		freq:           1 * sim.GHz,
-		numDispatchers: 8,
+		freq:            1 * sim.GHz,
+		numDispatchers:  8,
+		dispatchingAlg:  "round-robin",
+		strictChunkSize: 0,
 	}
 	return b
 }
@@ -69,6 +73,18 @@ func (b Builder) WithPerfAnalyzer(
 	analyzer *analysis.PerfAnalyzer,
 ) Builder {
 	b.perfAnalyzer = analyzer
+	return b
+}
+
+// WithDispatchingAlg sets how workgroups are assigned to CUs.
+func (b Builder) WithDispatchingAlg(alg string) Builder {
+	b.dispatchingAlg = alg
+	return b
+}
+
+// WithStrictPartitionChunkSize sets the tile size for partition-strict.
+func (b Builder) WithStrictPartitionChunkSize(size int) Builder {
+	b.strictChunkSize = size
 	return b
 }
 
@@ -150,7 +166,8 @@ func (b *Builder) buildDispatchers(cp *CommandProcessor) {
 	builder := dispatching.MakeBuilder().
 		WithCP(cp).
 		WithGPUID(b.gpuID).
-		WithAlg("round-robin").
+		WithAlg(b.dispatchingAlg).
+		WithStrictPartitionChunkSize(b.strictChunkSize).
 		WithCUResourcePool(cuResourcePool).
 		WithDispatchingPort(cp.ToCUs).
 		WithRespondingPort(cp.ToDriver).

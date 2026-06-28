@@ -43,6 +43,7 @@ type Builder struct {
 	flexPromotionThreshold int
 	ptclLineSize           int
 	ptclSerialLookup       bool
+	demandPTEOnly          bool
 	pteLookupLatencyCycles int
 	idleIOMMUAssistEnabled bool
 	sharedPTWState         PTWStateProvider
@@ -88,6 +89,11 @@ func (b Builder) WithPTCLLineSize(lineSize int) Builder {
 
 func (b Builder) WithPTCLSerialLookup(enabled bool) Builder {
 	b.ptclSerialLookup = enabled
+	return b
+}
+
+func (b Builder) WithDemandPTEOnly(enabled bool) Builder {
+	b.demandPTEOnly = enabled
 	return b
 }
 
@@ -257,6 +263,7 @@ func (b Builder) Build(name string) *GMMUTLB {
 	tlb.flexPCDWays = b.flexPCDWays
 	tlb.flexPromotionThreshold = b.flexPromotionThreshold
 	tlb.ptclSerialLookup = b.ptclSerialLookup
+	tlb.demandPTEOnly = b.demandPTEOnly
 	tlb.gmmuCacheTable = b.gmmuCacheTable
 	tlb.pteLookupLatencyCycles = b.pteLookupLatencyCycles
 	tlb.idleIOMMUAssistEnabled = b.idleIOMMUAssistEnabled

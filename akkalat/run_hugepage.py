@@ -15,6 +15,8 @@ import shlex
 import subprocess
 import sys
 
+import runall2
+
 
 ROOT_DIR = Path(__file__).resolve().parent
 DEFAULT_PAGE_SIZES = "64kb,2mb"
@@ -76,6 +78,16 @@ def parse_args():
         ),
     )
     parser.add_argument(
+        "--hugepage-20260626-flags",
+        "--hugepage-paper-flags",
+        dest="hugepage_20260626_flags",
+        action="store_true",
+        help=(
+            "Forward runall2.py's 2026-06-26 huge-page benchmark flag preset "
+            "instead of spelling out the long --extra-benchmark-flags string."
+        ),
+    )
+    parser.add_argument(
         "--capacity-normalized-gmmu-tlb",
         action="store_true",
         help=(
@@ -112,7 +124,18 @@ def parse_args():
     parser.add_argument(
         "--continue-on-error",
         action="store_true",
-        help="Continue to the next page size if one runall2 invocation fails.",
+        help=(
+            "In --sequential-page-sizes mode, continue to the next page size "
+            "if one runall2 invocation fails."
+        ),
+    )
+    parser.add_argument(
+        "--sequential-page-sizes",
+        action="store_true",
+        help=(
+            "Run one runall2.py invocation per page size. By default, all "
+            "page sizes are mixed into one scheduler queue."
+        ),
     )
     parser.add_argument(
         "--dry-run",
@@ -308,10 +331,7 @@ def create_output_dir(args):
     return output_dir
 
 
-def build_runall_command(args, forwarded_args, output_dir, page_size):
-    run_dir = output_dir / page_size["label"]
-    run_dir.mkdir(parents=True, exist_ok=True)
-
+def page_extra_flags(args, page_size):
     extra_flags = remove_log2_page_size_flags(
         shlex.split(args.extra_benchmark_flags)
     )
@@ -346,20 +366,37 @@ def build_runall_command(args, forwarded_args, output_dir, page_size):
             f'{hugepage_aware_ptcl_line_size(page_size["bytes"])}'
         )
 
+    return extra_flags
+
+
+def build_runall_argv(args, forwarded_args, page_size):
+    runall_argv = [
+        "--configs",
+        args.configs,
+        f"--extra-benchmark-flags={shlex.join(page_extra_flags(args, page_size))}",
+    ]
+
+    if args.hugepage_20260626_flags:
+        runall_argv.append("--hugepage-20260626-flags")
+
+    if args.benchmarks:
+        runall_argv += ["--benchmarks", args.benchmarks]
+
+    runall_argv += forwarded_args
+    return runall_argv
+
+
+def build_runall_command(args, forwarded_args, output_dir, page_size):
+    run_dir = output_dir / page_size["label"]
+    run_dir.mkdir(parents=True, exist_ok=True)
+
     cmd = [
         args.python,
         str(Path(args.runall_script).expanduser().resolve()),
         "--rerun-missing",
         str(run_dir),
-        "--configs",
-        args.configs,
-        f"--extra-benchmark-flags={shlex.join(extra_flags)}",
+        *build_runall_argv(args, forwarded_args, page_size),
     ]
-
-    if args.benchmarks:
-        cmd += ["--benchmarks", args.benchmarks]
-
-    cmd += forwarded_args
     return cmd, run_dir
 
 
@@ -377,8 +414,13 @@ def write_manifest(output_dir, page_sizes, args, forwarded_args):
             "Huge-page-aware PTCL line size: "
             f"{args.hugepage_aware_ptcl_line_size}\n"
         )
+        f.write(
+            "Page-size scheduling: "
+            f"{'sequential' if args.sequential_page_sizes else 'combined-round-robin'}\n"
+        )
         if args.benchmarks:
             f.write(f"Benchmarks: {args.benchmarks}\n")
+        f.write(f"Hugepage 2026-06-26 flags: {args.hugepage_20260626_flags}\n")
         f.write(f"Extra benchmark flags: {args.extra_benchmark_flags}\n")
         if forwarded_args:
             f.write(f"Forwarded runall2 args: {shlex.join(forwarded_args)}\n")
@@ -403,15 +445,7 @@ def write_manifest(output_dir, page_sizes, args, forwarded_args):
     return manifest
 
 
-def main():
-    args, forwarded_args = parse_args()
-    page_sizes = unique_page_sizes(args.page_sizes)
-    output_dir = create_output_dir(args)
-    manifest = write_manifest(output_dir, page_sizes, args, forwarded_args)
-
-    print(f"Output directory: {output_dir}", flush=True)
-    print(f"Manifest: {manifest}", flush=True)
-
+def run_sequential_page_sizes(args, forwarded_args, output_dir, page_sizes):
     failures = []
     for page_size in page_sizes:
         cmd, run_dir = build_runall_command(
@@ -444,6 +478,93 @@ def main():
         for label, returncode in failures:
             print(f"  {label}: returncode={returncode}", flush=True)
         raise SystemExit(1)
+
+
+def interleave_experiment_groups(groups):
+    interleaved = []
+    max_len = max((len(exps) for _, exps in groups), default=0)
+    for index in range(max_len):
+        for _, exps in groups:
+            if index < len(exps):
+                interleaved.append(exps[index])
+    return interleaved
+
+
+def build_combined_page_experiments(args, forwarded_args, output_dir, page_sizes):
+    page_exp_groups = []
+    scheduler_args = None
+
+    for page_size in page_sizes:
+        run_dir = output_dir / page_size["label"]
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        runall_args = runall2.parse_args(
+            build_runall_argv(args, forwarded_args, page_size)
+        )
+        runall_args.dry_run = args.dry_run
+        runall2.validate_args(runall_args)
+
+        exps = runall2.configured_experiments(runall_args)
+        if not exps:
+            print(
+                f'No experiments configured for page size {page_size["label"]}.',
+                flush=True,
+            )
+            continue
+
+        exps = runall2.filter_missing_metric_exps(exps, str(run_dir))
+        common_flags = runall2.build_common_flags(runall_args)
+        runall2.prepare_experiments(runall_args, exps, common_flags)
+
+        for exp in exps:
+            exp["results_dir"] = str(run_dir)
+            exp["page_size_label"] = page_size["label"]
+            exp["page_size_log2"] = page_size["log2"]
+
+        print(
+            f'Queued missing experiments for {page_size["label"]}: {len(exps)}',
+            flush=True,
+        )
+        page_exp_groups.append((page_size["label"], exps))
+
+        if scheduler_args is None:
+            scheduler_args = runall_args
+
+    return interleave_experiment_groups(page_exp_groups), scheduler_args
+
+
+def run_combined_page_sizes(args, forwarded_args, output_dir, page_sizes):
+    exps, scheduler_args = build_combined_page_experiments(
+        args, forwarded_args, output_dir, page_sizes
+    )
+    if not exps:
+        print("No missing-metrics experiments found for any page size.", flush=True)
+        return
+    if scheduler_args is None:
+        raise ValueError("no runall2 scheduler args were constructed")
+
+    runall2.output_dir = str(output_dir)
+    print(
+        f"Queued {len(exps)} missing experiments across "
+        f"{len(page_sizes)} page sizes",
+        flush=True,
+    )
+    runall2.run_experiment_queue(scheduler_args, exps)
+
+
+def main():
+    args, forwarded_args = parse_args()
+    page_sizes = unique_page_sizes(args.page_sizes)
+    output_dir = create_output_dir(args)
+    manifest = write_manifest(output_dir, page_sizes, args, forwarded_args)
+
+    print(f"Output directory: {output_dir}", flush=True)
+    print(f"Manifest: {manifest}", flush=True)
+
+    if args.sequential_page_sizes:
+        run_sequential_page_sizes(args, forwarded_args, output_dir, page_sizes)
+    else:
+        run_combined_page_sizes(args, forwarded_args, output_dir, page_sizes)
 
 
 if __name__ == "__main__":

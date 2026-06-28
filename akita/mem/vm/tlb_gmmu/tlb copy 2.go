@@ -1,7 +1,6 @@
 package tlb_gmmu
 
 import (
-	"fmt"
 	"log"
 	"reflect"
 
@@ -50,6 +49,7 @@ type GMMUTLB struct {
 	flexPromotionThreshold       int
 	ptclLineSize                 int
 	ptclSerialLookup             bool
+	demandPTEOnly                bool
 	ptclMode                     bool
 	coalescingCounter            int
 	ptclHighThreshold            int
@@ -1126,7 +1126,8 @@ func (tlb *GMMUTLB) issueSplitPTCLDownstreamGroup(
 func (tlb *GMMUTLB) shouldCoalescePTCLDownstream(
 	group *pteLookupGroup,
 ) bool {
-	return group != nil && group.ptclLookup && tlb.flexTLBEnabled
+	return group != nil && group.ptclLookup && tlb.flexTLBEnabled &&
+		!tlb.demandPTEOnly
 }
 
 func (tlb *GMMUTLB) shouldSplitPTCLDownstream(
@@ -2048,14 +2049,10 @@ func (tlb *GMMUTLB) printPTCLModeEvent(
 	scoreBits int,
 	totalBits int,
 ) {
-	mode := "pte"
-	if tlb.ptclMode {
-		mode = "ptcl"
-	}
-	fmt.Printf("[GMMU-PTCL][mode] cycle=%d component=%s action=%s mode=%s counter_before=%d counter_after=%d delta=%d demand_bits=%d total_bits=%d low=%d high=%d pte_completions=%d ptcl_completions=%d switch_to_ptcl=%d switch_to_pte=%d\n",
-		uint64(now*1e9), tlb.Name(), action, mode,
-		counterBefore, tlb.coalescingCounter, delta, scoreBits, totalBits,
-		tlb.ptclLowThreshold, tlb.ptclHighThreshold,
-		tlb.pteModeCompletions, tlb.ptclModeCompletions,
-		tlb.switchToPTCLCount, tlb.switchToPTECount)
+	_ = now
+	_ = action
+	_ = counterBefore
+	_ = delta
+	_ = scoreBits
+	_ = totalBits
 }

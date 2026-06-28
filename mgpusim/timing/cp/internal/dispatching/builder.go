@@ -9,12 +9,15 @@ import (
 	"github.com/sarchlab/mgpusim/v3/timing/cp/internal/resource"
 )
 
+const defaultStrictPartitionChunkSize = 0
+
 // A Builder can build dispatchers
 type Builder struct {
 	cp              tracing.NamedHookable
 	gpuID           uint64
 	cuResourcePool  resource.CUResourcePool
 	alg             string
+	strictChunkSize int
 	respondingPort  sim.Port
 	dispatchingPort sim.Port
 	monitor         *monitoring.Monitor
@@ -23,7 +26,8 @@ type Builder struct {
 // MakeBuilder creates a builder with default dispatching configureations.
 func MakeBuilder() Builder {
 	b := Builder{
-		alg: "partition",
+		alg:             "partition",
+		strictChunkSize: defaultStrictPartitionChunkSize,
 	}
 	return b
 }
@@ -62,12 +66,19 @@ func (b Builder) WithDispatchingPort(p sim.Port) Builder {
 // WithAlg sets the dispatching algorithm.
 func (b Builder) WithAlg(alg string) Builder {
 	switch alg {
-	case "round-robin", "greedy", "partition":
+	case "round-robin", "greedy", "partition", "partition-strict":
 		b.alg = alg
 	default:
 		panic("unknown dispatching algorithm " + alg)
 	}
 
+	return b
+}
+
+// WithStrictPartitionChunkSize sets the tile size used by partition-strict.
+// A value <= 0 restores the legacy one-contiguous-partition-per-CU behavior.
+func (b Builder) WithStrictPartitionChunkSize(size int) Builder {
+	b.strictChunkSize = size
 	return b
 }
 
@@ -112,6 +123,12 @@ func (b Builder) Build(name string) Dispatcher {
 	case "partition":
 		d.alg = &partitionAlgorithm{
 			cuPool: b.cuResourcePool,
+		}
+	case "partition-strict":
+		d.alg = &partitionAlgorithm{
+			cuPool:              b.cuResourcePool,
+			disableWorkStealing: true,
+			strictChunkSize:     b.strictChunkSize,
 		}
 	default:
 		panic("unknown dispatching algorithm " + b.alg)

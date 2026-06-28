@@ -39,6 +39,9 @@ type R9NanoPlatformBuilder struct {
 	bandwidth             int
 	switchLatency         int
 	maxNumHops            int
+	cuDispatchAlg         string
+	cuDispatchStrictChunk int
+	allocationAlignPages  int
 
 	engine       sim.Engine
 	visTracer    tracing.Tracer
@@ -60,15 +63,17 @@ type R9NanoPlatformBuilder struct {
 // MakeR9NanoBuilder creates a EmuBuilder with default parameters.
 func MakeR9NanoBuilder() R9NanoPlatformBuilder {
 	b := R9NanoPlatformBuilder{
-		tileWidth:         7,
-		tileHeight:        7,
-		log2PageSize:      12,
-		visTraceStartTime: -1,
-		visTraceEndTime:   -1,
-		switchLatency:     20,
-		numSAPerGPU:       8,
-		numCUPerSA:        4,
-		maxNumHops:        -1,
+		tileWidth:             7,
+		tileHeight:            7,
+		log2PageSize:          12,
+		visTraceStartTime:     -1,
+		visTraceEndTime:       -1,
+		switchLatency:         20,
+		numSAPerGPU:           8,
+		numCUPerSA:            4,
+		maxNumHops:            -1,
+		cuDispatchAlg:         "round-robin",
+		cuDispatchStrictChunk: 0,
 	}
 	return b
 }
@@ -166,6 +171,27 @@ func (b R9NanoPlatformBuilder) WithMaxNumHops(
 	return b
 }
 
+func (b R9NanoPlatformBuilder) WithCUDispatchAlg(
+	alg string,
+) R9NanoPlatformBuilder {
+	b.cuDispatchAlg = alg
+	return b
+}
+
+func (b R9NanoPlatformBuilder) WithCUDispatchStrictChunkSize(
+	size int,
+) R9NanoPlatformBuilder {
+	b.cuDispatchStrictChunk = size
+	return b
+}
+
+func (b R9NanoPlatformBuilder) WithAllocationAlignmentPages(
+	pages int,
+) R9NanoPlatformBuilder {
+	b.allocationAlignPages = pages
+	return b
+}
+
 // Build builds a platform with R9Nano GPUs.
 func (b R9NanoPlatformBuilder) Build(numMemoryBank int) *Platform {
 	b.engine = b.createEngine()
@@ -210,6 +236,7 @@ func (b R9NanoPlatformBuilder) Build(numMemoryBank int) *Platform {
 		WithEngine(b.engine).
 		WithPageTable(pageTable).
 		WithLog2PageSize(b.log2PageSize).
+		WithAllocationAlignmentPages(b.allocationAlignPages).
 		WithGlobalStorage(b.globalStorage).
 		WithMemorySize(8 * mem.GB).
 		Build("Driver")
@@ -406,7 +433,7 @@ func (b R9NanoPlatformBuilder) createMMU(
 		WithPageTable(pageTable).
 		WithGMMUCacheTable(gmmuCacheTable).
 		WithWalkCoalescing(*mmuWalkCoalescing).
-		WithDemandPTEOnly(*ptwDemandPTEOnly).
+		WithDemandPTEOnly(configuredPTWDemandPTEOnly()).
 		WithMMUTopModule(b.mmuTopModule)
 
 	mmuComponent := mmuBuilder.Build("MMU")
@@ -443,6 +470,8 @@ func (b *R9NanoPlatformBuilder) createGPUBuilder(
 		WithL2CacheSize(4 * mem.MB).
 		WithLog2MemoryBankInterleavingSize(7).
 		WithLog2PageSize(b.log2PageSize).
+		WithCUDispatchAlg(b.cuDispatchAlg).
+		WithCUDispatchStrictChunkSize(b.cuDispatchStrictChunk).
 		WithGlobalStorage(b.globalStorage).
 		WithPerfAnalyzer(b.perfAnalyzer).
 		WithGMMUPageTable(pageTable)
@@ -603,7 +632,7 @@ func (b *R9NanoPlatformBuilder) createIOMMUTLB(
 		WithGMMUCacheTable(gmmuCacheTable).
 		WithLog2PageSize(b.log2PageSize).
 		WithPerVPNMSHRBaseline(*mmutlbVPNMSHRBaseline).
-		WithDemandPTEOnly(*mmutlbDemandPTEOnly).
+		WithDemandPTEOnly(configuredMMUTLBDemandPTEOnly()).
 		WithSetAsLineTLB(*mmutlbFlexTLB).
 		WithLookupLatencyCycles(*mmutlbPTCLReturnLatency).
 		Build(name)

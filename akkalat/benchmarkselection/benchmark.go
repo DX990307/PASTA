@@ -36,8 +36,13 @@ import (
 	"github.com/sarchlab/mgpusim/v3/benchmarks/heteromark/kmeans"
 	"github.com/sarchlab/mgpusim/v3/benchmarks/heteromark/pagerank"
 	"github.com/sarchlab/mgpusim/v3/benchmarks/llm/kvcache"
+	"github.com/sarchlab/mgpusim/v3/benchmarks/mafia/gups"
 	"github.com/sarchlab/mgpusim/v3/benchmarks/polybench/atax"
 	"github.com/sarchlab/mgpusim/v3/benchmarks/polybench/bicg"
+	"github.com/sarchlab/mgpusim/v3/benchmarks/polybench/fdtd2d"
+	"github.com/sarchlab/mgpusim/v3/benchmarks/polybench/gesummv"
+	"github.com/sarchlab/mgpusim/v3/benchmarks/polybench/jacobi2d"
+	"github.com/sarchlab/mgpusim/v3/benchmarks/polybench/lu"
 	"github.com/sarchlab/mgpusim/v3/benchmarks/rodinia/nw"
 	"github.com/sarchlab/mgpusim/v3/benchmarks/shoc/fft"
 	"github.com/sarchlab/mgpusim/v3/benchmarks/shoc/spmv"
@@ -106,8 +111,23 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 		floydwarshall.NumNodes = 11520
 		floydwarshall.NumIterations = 1
 		benchmark = floydwarshall
+	case "fdtd2d":
+		fdtd2d := fdtd2d.NewBenchmark(driver)
+		fdtd2d.NX = 4096
+		fdtd2d.NY = 4096
+		fdtd2d.TMax = 3
+		benchmark = fdtd2d
+	case "gesummv", "gesm":
+		gesummv := gesummv.NewBenchmark(driver)
+		gesummv.N = 8192
+		benchmark = gesummv
 	case "gpt":
 		benchmark = gpt.NewBenchmark(driver)
+	case "gups":
+		gups := gups.NewBenchmark(driver)
+		gups.TableEntries = 1 << 26
+		gups.Updates = 1 << 26
+		benchmark = gups
 	case "im2col":
 		im2col := im2col.NewBenchmark(driver)
 		im2col.N = 16 / 8
@@ -159,10 +179,19 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 		kvcache.SeqBlock = 64
 		kvcache.DecodeStep = 1
 		benchmark = kvcache
+	case "j2d", "jacobi2d":
+		jacobi2d := jacobi2d.NewBenchmark(driver)
+		jacobi2d.N = 4096
+		jacobi2d.TSteps = 3
+		benchmark = jacobi2d
 	case "llminference":
 		benchmark = inference.NewBenchmark(driver)
 	case "llmop":
 		benchmark = llmop.NewBenchmarkFromFlags(driver)
+	case "lu":
+		lu := lu.NewBenchmark(driver)
+		lu.N = 2048
+		benchmark = lu
 	case "matrixmultiplication":
 		matrixmultiplication := matrixmultiplication.NewBenchmark(driver)
 		matrixmultiplication.X = 2048 / 16
@@ -186,7 +215,7 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 		matrixmultiplication.Y = 2048 * 512
 		matrixmultiplication.Z = 2048 / 8
 		benchmark = matrixmultiplication
-	case "matrixtranspose":
+	case "matrixtranspose", "matr":
 		matrixtranspose := matrixtranspose.NewBenchmark(driver)
 		matrixtranspose.Width = 11520
 		benchmark = matrixtranspose
