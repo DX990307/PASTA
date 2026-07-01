@@ -98,11 +98,14 @@ kernels=(
   cross_entropy
   residual_add
   gelu
+  tanh
   layernorm
   embedding_synthetic
+  bert_embedding_synthetic
   batchnorm2d_inference
   causal_mask
   row_softmax
+  kvcache_update
   gemm
   transfer_copy
   kernels

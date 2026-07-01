@@ -209,6 +209,21 @@ func (r *Runner) reportTLBHitRate() {
 			tracer.tlb.Name(), "miss", float64(miss))
 		r.metricsCollector.Collect(
 			tracer.tlb.Name(), "mshr-hit", float64(mshrHit))
+
+		if stats, ok := tracer.tlb.(interface {
+			LATPCStats() (bool, uint64, uint64, uint64, uint64)
+		}); ok {
+			enabled, metadataGenerated, compressedMisses, bottomReqs, fullStalls := stats.LATPCStats()
+			enabledValue := 0.0
+			if enabled {
+				enabledValue = 1.0
+			}
+			r.metricsCollector.Collect(tracer.tlb.Name(), "latpc_enabled", enabledValue)
+			r.metricsCollector.Collect(tracer.tlb.Name(), "latpc_metadata_generated", float64(metadataGenerated))
+			r.metricsCollector.Collect(tracer.tlb.Name(), "latpc_compressed_misses", float64(compressedMisses))
+			r.metricsCollector.Collect(tracer.tlb.Name(), "latpc_bottom_reqs", float64(bottomReqs))
+			r.metricsCollector.Collect(tracer.tlb.Name(), "latpc_mshr_full_stalls", float64(fullStalls))
+		}
 	}
 }
 
@@ -238,6 +253,27 @@ func (r *Runner) reportGMMUTransactionCount() {
 			t.gmmuEngine.Name(),
 			"incoming_trans_count",
 			float64(t.incomingTracer.TotalCount()),
+		)
+		latpcEnabled, latpcLines, latpcPTEs :=
+			t.gmmuEngine.LATPCFreeReturnStats()
+		latpcEnabledValue := 0.0
+		if latpcEnabled {
+			latpcEnabledValue = 1.0
+		}
+		r.metricsCollector.Collect(
+			t.gmmuEngine.Name(),
+			"latpc_local_free_return_enabled",
+			latpcEnabledValue,
+		)
+		r.metricsCollector.Collect(
+			t.gmmuEngine.Name(),
+			"latpc_local_free_return_lines",
+			float64(latpcLines),
+		)
+		r.metricsCollector.Collect(
+			t.gmmuEngine.Name(),
+			"latpc_local_free_return_ptes",
+			float64(latpcPTEs),
 		)
 	}
 }
@@ -711,6 +747,13 @@ func (r *Runner) reportMMUCoalescingStats() {
 		enabled = 1.0
 	}
 	lastLevel, twoLevel := r.platform.GPUs[0].MMUEngine.CoalescingStats()
+	latpcEnabled := 0.0
+	if r.platform.GPUs[0].MMUEngine.LATPCPageWalkBatchingEnabled() {
+		latpcEnabled = 1.0
+	}
+	latpcCoalesced := r.platform.GPUs[0].MMUEngine.LATPCCoalescingStats()
+	latpcFreeReturnLines, latpcFreeReturnPTEs :=
+		r.platform.GPUs[0].MMUEngine.LATPCFreeReturnStats()
 	r.metricsCollector.Collect(
 		"MMU",
 		"coalescing_enabled",
@@ -725,6 +768,26 @@ func (r *Runner) reportMMUCoalescingStats() {
 		"MMU",
 		"two_level_coalesced_reqs",
 		float64(twoLevel),
+	)
+	r.metricsCollector.Collect(
+		"MMU",
+		"latpc_batching_enabled",
+		latpcEnabled,
+	)
+	r.metricsCollector.Collect(
+		"MMU",
+		"latpc_coalesced_reqs",
+		float64(latpcCoalesced),
+	)
+	r.metricsCollector.Collect(
+		"MMU",
+		"latpc_free_return_lines",
+		float64(latpcFreeReturnLines),
+	)
+	r.metricsCollector.Collect(
+		"MMU",
+		"latpc_free_return_ptes",
+		float64(latpcFreeReturnPTEs),
 	)
 }
 

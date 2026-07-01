@@ -142,6 +142,7 @@ func (cache *MMUCache) sendReqToBottom(
 		WithBitMap(req.BitMap).
 		WithTransLatency(latency).
 		WithPrefetch(req.IsPrefetch).
+		WithLATPCFromReq(req).
 		Build()
 	reqToBottom.StartGPUID = req.StartGPUID
 

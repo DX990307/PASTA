@@ -330,7 +330,8 @@ func (b *shaderArrayBuilder) buildL1VTLBs(sa *shaderArray) {
 		WithNumMSHREntry(4).
 		WithNumSets(1).
 		WithNumWays(32).
-		WithNumReqPerCycle(4)
+		WithNumReqPerCycle(4).
+		WithLATPCMSHRCompression(latpcLATCEnabled())
 
 	for i := 0; i < b.numCU; i++ {
 		name := fmt.Sprintf("%s.L1VTLB[%d]", b.name, i)
@@ -408,7 +409,8 @@ func (b *shaderArrayBuilder) buildL1STLB(sa *shaderArray) {
 		WithNumMSHREntry(4).
 		WithNumSets(1).
 		WithNumWays(32).
-		WithNumReqPerCycle(4)
+		WithNumReqPerCycle(4).
+		WithLATPCMSHRCompression(latpcLATCEnabled())
 
 	name := fmt.Sprintf("%s.L1STLB", b.name)
 	tlb := builder.Build(name)
@@ -482,7 +484,8 @@ func (b *shaderArrayBuilder) buildL1ITLB(sa *shaderArray) {
 		WithNumMSHREntry(4).
 		WithNumSets(1).
 		WithNumWays(32).
-		WithNumReqPerCycle(4)
+		WithNumReqPerCycle(4).
+		WithLATPCMSHRCompression(latpcLATCEnabled())
 
 	name := fmt.Sprintf("%s.L1ITLB", b.name)
 	tlb := builder.Build(name)

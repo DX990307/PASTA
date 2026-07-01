@@ -10,6 +10,7 @@ import csv
 from dataclasses import dataclass
 from pathlib import Path
 import shlex
+import shutil
 
 import bertconfig
 import gptconfig
@@ -17,6 +18,19 @@ import runall2
 
 
 CONFIG_FLAGS = {name: flags for name, flags in runall2.CONFIGS}
+VPN_MSHR_FALLBACK_FLAGS = [
+    "-gmmu-vpn-mshr-baseline",
+    "-mmutlb-vpn-mshr-baseline",
+    "-mmutlb-demand-pte-only",
+]
+SUMMARY_CONFIG_NAMES = sorted(
+    set(CONFIG_FLAGS)
+    | set(runall2.PTCL_CONFIG_NAMES)
+    | set(getattr(runall2, "EXTRA_PTCL_CONFIG_NAMES", []))
+    | {"llm_mixed"},
+    key=len,
+    reverse=True,
+)
 PROFILE_NAMES = sorted(set(bertconfig.PROFILES) | set(gptconfig.PROFILES))
 
 
@@ -44,17 +58,108 @@ class MetricRecord:
     return_code: str = ""
 
 
+@dataclass(frozen=True)
+class ModelSpec:
+    model: str
+    profile: str
+
+
+RESNET_PROFILES = {
+    "resnet-tiny": {
+        "mode": "block",
+        "depth": 18,
+        "batch_size": 1,
+        "image_size": 4,
+    },
+    "resnet-18-block": {
+        "mode": "block",
+        "depth": 18,
+        "batch_size": 4,
+        "image_size": 224,
+    },
+    "resnet-50-full": {
+        "mode": "full",
+        "depth": 50,
+        "batch_size": 4,
+        "image_size": 224,
+    },
+}
+
+MODEL_ALIASES = {
+    "bert7b": ("bert", "bert-7b-proxy"),
+    "bert-7b": ("bert", "bert-7b-proxy"),
+    "bert-7b-proxy": ("bert", "bert-7b-proxy"),
+    "gpt7b": ("gpt", "gpt-7b"),
+    "gpt-7b": ("gpt", "gpt-7b"),
+    "gpt-7b-proxy": ("gpt", "gpt-7b-proxy"),
+    "resnet": ("resnet", "resnet-50-full"),
+    "resnet50": ("resnet", "resnet-50-full"),
+    "resnet-50": ("resnet", "resnet-50-full"),
+    "resnet50-full": ("resnet", "resnet-50-full"),
+    "resnet-50-full": ("resnet", "resnet-50-full"),
+}
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Run decomposed BERT/GPT through the llmop benchmark.")
-    parser.add_argument("--model", choices=["bert", "gpt"], default="bert")
+        description=(
+            "Run decomposed BERT/GPT through llmop, optionally alongside "
+            "the full ResNet benchmark."
+        ))
+    parser.add_argument(
+        "--model",
+        "--models",
+        dest="model",
+        default="bert",
+        help=(
+            "Comma-separated model list. Supports legacy bert/gpt plus "
+            "aliases such as gpt7B,bert7B,resnet."
+        ))
     parser.add_argument(
         "--target",
         default="400latency",
         help="akkalat target binary to run. Default: 400latency.",
     )
     parser.add_argument(
-        "--profile", choices=PROFILE_NAMES, default="tiny")
+        "--profile",
+        choices=PROFILE_NAMES + sorted(RESNET_PROFILES),
+        default="tiny")
+    parser.add_argument(
+        "--resnet-mode",
+        default="",
+        help="Override ResNet profile mode: block or full.")
+    parser.add_argument(
+        "--resnet-depth",
+        type=int,
+        default=0,
+        help="Override ResNet profile depth: 18, 34, or 50.")
+    parser.add_argument(
+        "--resnet-batch-size",
+        type=int,
+        default=0,
+        help="Override ResNet profile synthetic batch size.")
+    parser.add_argument(
+        "--resnet-image-size",
+        type=int,
+        default=0,
+        help="Override ResNet profile square image size.")
+    parser.add_argument(
+        "--model-schedule",
+        choices=["round-robin", "grouped"],
+        default="round-robin",
+        help=(
+            "Multi-model queue order. round-robin interleaves models so one "
+            "long model tail does not hold back the others; grouped preserves "
+            "the old model-by-model order."
+        ))
+    parser.add_argument(
+        "--vpn-mshr-op-kinds",
+        default="",
+        help=(
+            "Comma-separated llmop kinds that should use per-VPN GMMU/MMUTLB "
+            "MSHR fallback flags for every config. Useful for isolating ops "
+            "that hang in the PTCL-granularity MSHR path, e.g. row-softmax."
+        ))
     parser.add_argument(
         "--configs", default="baseline",
         help=(
@@ -97,6 +202,15 @@ def parse_args():
         "--limit", type=int, default=0,
         help="Run only the first N ops. 0 means all ops.")
     parser.add_argument(
+        "--op-label-filter",
+        "--only-op-labels",
+        dest="op_label_filter",
+        default="",
+        help=(
+            "Comma-separated substrings used to keep decomposed ops by label "
+            "before dedupe, e.g. mlp_fc2 or layer00_mlp_fc2."
+        ))
+    parser.add_argument(
         "--layers", type=int, default=0,
         help="Override the profile layer count. 0 uses the profile default.")
     parser.add_argument(
@@ -104,6 +218,27 @@ def parse_args():
         type=int,
         default=0,
         help="Override the profile sequence length. 0 uses the profile default.")
+    parser.add_argument(
+        "--bert-num-labels",
+        type=int,
+        default=2,
+        help="Classifier output classes for BERT decomposed workloads.")
+    parser.add_argument(
+        "--gpt-decode-steps",
+        type=int,
+        default=1,
+        help=(
+            "Autoregressive decode tokens to append after GPT prefill. "
+            "Use 0 to run prefill only."
+        ))
+    parser.add_argument(
+        "--gpt-decode-context-len",
+        type=int,
+        default=0,
+        help=(
+            "KV-cache context length used by GPT decode ops. "
+            "0 uses the GPT profile/input seq_len."
+        ))
     parser.add_argument(
         "--max-wg",
         type=int,
@@ -127,19 +262,35 @@ def parse_args():
     parser.add_argument(
         "--max-split-k", type=int, default=16,
         help="Maximum per-op split count used by --split-k auto.")
+    parser.add_argument(
+        "--balance-split-k-by-input",
+        action="store_true",
+        help=(
+            "Increase split-linear split-k when input-dim is large so each "
+            "split has a bounded K chunk. This keeps fc2-style GEMMs from "
+            "having far heavier workgroups than fc1-style GEMMs."
+        ))
+    parser.add_argument(
+        "--split-k-target-input-chunk",
+        type=int,
+        default=1024,
+        help=(
+            "Target maximum input-dim per split when "
+            "--balance-split-k-by-input is enabled."
+        ))
     parser.add_argument("--sampled-warmup", type=int, default=128)
     parser.add_argument("--sampled-granularity", type=int, default=512)
     parser.add_argument(
         "--photon",
         dest="photon",
         action="store_true",
-        default=True,
-        help="Enable Photon sampled execution for decomposed ops by default.")
+        default=False,
+        help="Enable Photon sampled execution for decomposed ops.")
     parser.add_argument(
         "--no-photon",
         dest="photon",
         action="store_false",
-        help="Disable default Photon sampled execution.")
+        help="Leave Photon sampled execution disabled. This is the default.")
     parser.add_argument("--log-subtasks", action="store_true")
     parser.add_argument(
         "--include-transfers", action="store_true",
@@ -156,6 +307,37 @@ def parse_args():
     parser.add_argument(
         "--summarize", action="store_true",
         help="Write decomposed summary CSVs after all ops finish.")
+    parser.add_argument(
+        "--analyze-ops",
+        action="store_true",
+        help=(
+            "Before running, group decomposed ops by identical llmop flags and "
+            "write llm_decomposed_op_analysis.csv."
+        ))
+    parser.add_argument(
+        "--analyze-only",
+        action="store_true",
+        help=(
+            "Create a results directory, write placement/op-analysis CSVs, "
+            "print duplicate-op groups, and exit without building or running."
+        ))
+    parser.add_argument(
+        "--dedupe-identical-ops",
+        action="store_true",
+        help=(
+            "Run only one representative for experiments with identical "
+            "target/benchmark/common/config/op flags. Duplicate metrics/stdout "
+            "files are materialized afterward so summaries still count every "
+            "original op occurrence."
+        ))
+    parser.add_argument(
+        "--auto-dedupe",
+        action="store_true",
+        help=(
+            "Shortcut for the common workflow: analyze decomposed op shapes, "
+            "write reports, dedupe identical experiments, run only unique "
+            "experiments, and materialize duplicate outputs before summary."
+        ))
     parser.add_argument(
         "--enable-servers", action="store_true",
         help="Deprecated no-op. Servers are always left enabled.")
@@ -222,6 +404,82 @@ def parse_csv(value):
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def label_matches_any(label, filters):
+    if not filters:
+        return True
+    label_lower = label.lower()
+    return any(token.lower() in label_lower for token in filters)
+
+
+def normalize_model_token(token):
+    return token.strip().lower().replace("_", "-")
+
+
+def validate_profile(model, profile):
+    if model == "bert":
+        if profile not in bertconfig.PROFILES:
+            raise ValueError(f"unknown BERT profile {profile!r}")
+    elif model == "gpt":
+        if profile not in gptconfig.PROFILES:
+            raise ValueError(f"unknown GPT profile {profile!r}")
+    elif model == "resnet":
+        if profile not in RESNET_PROFILES:
+            raise ValueError(f"unknown ResNet profile {profile!r}")
+    else:
+        raise ValueError(f"unknown model {model!r}")
+
+
+def resolve_model_spec(token, default_profile):
+    normalized = normalize_model_token(token)
+    for sep in (":", "/"):
+        if sep in normalized:
+            model, profile = normalized.split(sep, 1)
+            validate_profile(model, profile)
+            return ModelSpec(model, profile)
+
+    if normalized in {"bert", "gpt"}:
+        validate_profile(normalized, default_profile)
+        return ModelSpec(normalized, default_profile)
+
+    if normalized == "resnet":
+        profile = (
+            default_profile
+            if default_profile in RESNET_PROFILES
+            else "resnet-50-full"
+        )
+        return ModelSpec("resnet", profile)
+
+    if normalized in MODEL_ALIASES:
+        model, profile = MODEL_ALIASES[normalized]
+        return ModelSpec(model, profile)
+
+    raise ValueError(
+        f"unknown model alias {token!r}; use bert, gpt, resnet, "
+        "gpt7B, bert7B, or model:profile"
+    )
+
+
+def resolve_model_specs(args):
+    specs = []
+    seen = set()
+    for token in parse_csv(args.model) or ["bert"]:
+        spec = resolve_model_spec(token, args.profile)
+        key = (spec.model, spec.profile)
+        if key in seen:
+            continue
+        validate_profile(spec.model, spec.profile)
+        seen.add(key)
+        specs.append(spec)
+    return specs
+
+
+def args_for_model(args, spec):
+    model_args = argparse.Namespace(**vars(args))
+    model_args.model = spec.model
+    model_args.profile = spec.profile
+    return model_args
+
+
 def adaptive_flags(args):
     low = args.adaptive_threshold_low
     high = args.adaptive_threshold_high
@@ -234,20 +492,48 @@ def adaptive_flags(args):
     ]
 
 
+def set_default_attr(args, name, value):
+    if not hasattr(args, name):
+        setattr(args, name, value)
+
+
+def add_runall_ptcl_defaults(args):
+    set_default_attr(
+        args,
+        "mmutlb_ptcl_return_latency",
+        runall2.DEFAULT_MMUTLB_PTCL_RETURN_LATENCY,
+    )
+    set_default_attr(
+        args,
+        "gmmu_pte_lookup_latency",
+        runall2.DEFAULT_GMMU_PTE_LOOKUP_LATENCY,
+    )
+    set_default_attr(
+        args,
+        "gmmu_num_req_per_cycle",
+        runall2.DEFAULT_GMMU_NUM_REQ_PER_CYCLE,
+    )
+    set_default_attr(
+        args,
+        "gmmu_pte_lookup_slots",
+        runall2.DEFAULT_GMMU_PTE_LOOKUP_SLOTS,
+    )
+    set_default_attr(
+        args,
+        "gmmu_flex_pcd_ways",
+        runall2.DEFAULT_GMMU_FLEX_PCD_WAYS,
+    )
+    set_default_attr(
+        args,
+        "gmmu_flex_promotion_threshold",
+        runall2.DEFAULT_GMMU_FLEX_PROMOTION_THRESHOLD,
+    )
+    set_default_attr(args, "gmmu_ptcl_serial_lookup", False)
+
+
 def ptcl_config_map(args):
-    adaptive = adaptive_flags(args)
-    return {
-        "baseline": runall2.VPN_MSHR_BASELINE_FLAGS[:],
-        "gmmu_prefetch": (
-            runall2.VPN_MSHR_BASELINE_FLAGS[:] + runall2.GMMU_PREFETCH_FLAGS[:]
-        ),
-        "ptcl_mode": adaptive,
-        "pasta": adaptive + runall2.GMMU_PREFETCH_FLAGS[:],
-        "coalescing": (
-            runall2.VPN_MSHR_BASELINE_FLAGS[:] + runall2.COALESCING_FLAGS[:]
-        ),
-        "camsat": adaptive + runall2.COALESCING_FLAGS[:],
-    }
+    add_runall_ptcl_defaults(args)
+    return runall2.build_ptcl_config_map(args)
 
 
 def unique_preserving_config_names(configs):
@@ -259,6 +545,25 @@ def unique_preserving_config_names(configs):
         seen.add(name)
         unique.append((name, flags))
     return unique
+
+
+def append_unique_flags(flags, extra_flags):
+    out = flags[:]
+    present = set(out)
+    for flag in extra_flags:
+        if flag not in present:
+            out.append(flag)
+            present.add(flag)
+    return out
+
+
+def apply_op_fallback_flags(args, flags, op_flags):
+    fallback_kinds = set(parse_csv(args.vpn_mshr_op_kinds))
+    if not fallback_kinds:
+        return flags
+    if op_kind(op_flags) not in fallback_kinds:
+        return flags
+    return append_unique_flags(flags, VPN_MSHR_FALLBACK_FLAGS)
 
 
 def selected_config_flags(args, op_flags):
@@ -307,13 +612,19 @@ def selected_config_flags(args, op_flags):
             f"unknown config: {name}. Allowed: {', '.join(allowed)}"
         )
 
-    return unique_preserving_config_names(selected)
+    selected = unique_preserving_config_names(selected)
+    return [
+        (name, apply_op_fallback_flags(args, flags, op_flags))
+        for name, flags in selected
+    ]
 
 
 def op_kind(flags):
     for flag in flags:
         if flag.startswith("-op="):
             return flag.split("=", 1)[1]
+        if flag.startswith("-resnet-mode="):
+            return "resnet"
     return ""
 
 
@@ -396,6 +707,29 @@ def auto_split_linear_flags(flags, args):
     return replace_or_append_flag(out, "split-k", split_k)
 
 
+def balance_split_linear_flags(flags, args):
+    if not args.balance_split_k_by_input:
+        return flags
+
+    op = op_kind(flags)
+    if op not in {"linear", "split-linear"}:
+        return flags
+
+    input_dim = int(flag_value(flags, "input-dim"))
+    current_split_k = int_flag(flags, "split-k", 1)
+    target_chunk = max(1, args.split_k_target_input_chunk)
+    balanced_split_k = max(
+        current_split_k,
+        ceil_div(input_dim, target_chunk),
+    )
+    balanced_split_k = min(balanced_split_k, args.max_split_k)
+    if balanced_split_k <= current_split_k:
+        return flags
+
+    out = replace_or_append_flag(flags, "op", "split-linear")
+    return replace_or_append_flag(out, "split-k", balanced_split_k)
+
+
 def int_flag(flags, name, default=0):
     value = flag_value(flags, name)
     if value is None:
@@ -409,14 +743,24 @@ def output_bytes(flags):
     hidden = int_flag(flags, "hidden")
     elements = int_flag(flags, "elements")
 
-    if op in {"embedding", "layernorm", "attention", "causal-attention"}:
+    if op in {
+        "embedding",
+        "bert-embedding",
+        "layernorm",
+        "attention",
+        "causal-attention",
+        "decode-attention",
+    }:
         return rows * hidden * 4
     if op in {"linear", "split-linear", "mlp"}:
         return rows * int_flag(flags, "output-dim") * 4
-    if op in {"gelu", "residual-add"}:
+    if op in {"gelu", "tanh", "residual-add"}:
         if elements == 0:
             elements = rows * hidden
         return elements * 4
+    if op == "kv-cache-update":
+        kv_rows = int_flag(flags, "kv-rows", rows)
+        return 2 * kv_rows * hidden * 4
     if op == "row-softmax":
         return rows * int_flag(flags, "cols", rows) * 4
     if op == "causal-mask":
@@ -434,7 +778,7 @@ def estimated_wg(flags):
     hidden = int_flag(flags, "hidden")
     elements = int_flag(flags, "elements")
 
-    if op == "embedding":
+    if op in {"embedding", "bert-embedding"}:
         return ceil_div(rows * hidden, 64)
     if op == "layernorm":
         return ceil_div(rows * hidden, 64)
@@ -442,10 +786,19 @@ def estimated_wg(flags):
         output_dim = int_flag(flags, "output-dim")
         split_k = int_flag(flags, "split-k", 1)
         return ceil_div(rows, 16) * ceil_div(output_dim, 16) * split_k
-    if op == "gelu":
+    if op in {"gelu", "tanh"}:
         return ceil_div(elements, 64)
     if op == "residual-add":
         return ceil_div(elements, 64)
+    if op == "kv-cache-update":
+        return ceil_div(2 * rows * hidden, 64)
+    if op == "decode-attention":
+        kv_rows = int_flag(flags, "kv-rows", rows)
+        score_wg = ceil_div(rows, 16) * ceil_div(kv_rows, 16)
+        value_wg = ceil_div(rows, 16) * ceil_div(hidden, 16)
+        out_wg = ceil_div(rows, 16) * ceil_div(hidden, 16)
+        softmax_wg = rows
+        return score_wg + value_wg + out_wg + softmax_wg
     if op == "row-softmax":
         return rows
     if op == "causal-mask":
@@ -628,6 +981,181 @@ def op_metadata(index, label, flags, args):
     }
 
 
+def canonical_flags(flags):
+    return tuple(sorted(flags))
+
+
+def op_signature(flags):
+    return canonical_flags(flags)
+
+
+def exp_signature(exp):
+    return (
+        exp["target"],
+        exp["benchmark"],
+        tuple(exp.get("common_flags", [])),
+        canonical_flags(exp.get("flags", [])),
+    )
+
+
+def analyze_ops(ops, args):
+    groups = {}
+    for index, (label, flags) in enumerate(ops):
+        signature = op_signature(flags)
+        group = groups.setdefault(signature, {
+            "indices": [],
+            "labels": [],
+            "flags": flags,
+            "metadata": op_metadata(index, label, flags, args),
+        })
+        group["indices"].append(index)
+        group["labels"].append(label)
+    return groups
+
+
+def print_op_analysis(groups):
+    total_ops = sum(len(group["indices"]) for group in groups.values())
+    duplicate_ops = sum(
+        len(group["indices"]) - 1
+        for group in groups.values()
+        if len(group["indices"]) > 1
+    )
+    print(
+        "LLM op analysis: "
+        f"ops={total_ops} unique_op_shapes={len(groups)} "
+        f"duplicate_op_occurrences={duplicate_ops}",
+        flush=True,
+    )
+    for signature_id, group in enumerate(
+        sorted(groups.values(), key=lambda g: (-len(g["indices"]), g["labels"][0]))
+    ):
+        if len(group["indices"]) <= 1:
+            continue
+        metadata = group["metadata"]
+        print(
+            "  duplicate-shape "
+            f"id={signature_id} count={len(group['indices'])} "
+            f"op={metadata['op']} wg={metadata['estimated_wg']} "
+            f"bytes={metadata['output_bytes']} "
+            f"labels={';'.join(group['labels'][:6])}"
+            f"{';...' if len(group['labels']) > 6 else ''}",
+            flush=True,
+        )
+
+
+def write_op_analysis_report(args, ops):
+    groups = analyze_ops(ops, args)
+    print_op_analysis(groups)
+
+    path = Path(runall2.output_dir) / "llm_decomposed_op_analysis.csv"
+    with path.open("w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "signature_id",
+            "count",
+            "op",
+            "output_bytes",
+            "estimated_wg",
+            "compute_gpus",
+            "output_gpus",
+            "indices",
+            "labels",
+            "flags",
+        ])
+        for signature_id, group in enumerate(
+            sorted(groups.values(), key=lambda g: (g["indices"][0], g["labels"][0]))
+        ):
+            metadata = group["metadata"]
+            writer.writerow([
+                signature_id,
+                len(group["indices"]),
+                metadata["op"],
+                metadata["output_bytes"],
+                metadata["estimated_wg"],
+                metadata["compute_gpus"],
+                metadata["output_gpus"],
+                ";".join(str(index) for index in group["indices"]),
+                ";".join(group["labels"]),
+                " ".join(group["flags"]),
+            ])
+    print(f"Wrote op analysis: {path}", flush=True)
+    return groups
+
+
+def dedupe_experiments(exps):
+    representative_by_signature = {}
+    unique = []
+    duplicates = []
+
+    for exp in exps:
+        signature = exp_signature(exp)
+        representative = representative_by_signature.get(signature)
+        if representative is None:
+            representative_by_signature[signature] = exp
+            unique.append(exp)
+            continue
+        duplicates.append((representative, exp))
+
+    return unique, duplicates
+
+
+def exp_file_paths(exp):
+    stem = Path(runall2.exp_file_stem(exp))
+    return {
+        "metrics": stem.with_name(stem.name + "_metrics.csv"),
+        "stdout": stem.with_name(stem.name + "_out.stdout"),
+    }
+
+
+def write_dedupe_report(duplicates):
+    path = Path(runall2.output_dir) / "llm_decomposed_dedup.csv"
+    with path.open("w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            "representative_config_name",
+            "duplicate_config_name",
+            "representative_metrics",
+            "duplicate_metrics",
+        ])
+        for representative, duplicate in duplicates:
+            rep_paths = exp_file_paths(representative)
+            dup_paths = exp_file_paths(duplicate)
+            writer.writerow([
+                representative["config_name"],
+                duplicate["config_name"],
+                rep_paths["metrics"].name,
+                dup_paths["metrics"].name,
+            ])
+    print(f"Wrote dedupe report: {path}", flush=True)
+
+
+def materialize_duplicate_outputs(duplicates):
+    if not duplicates:
+        return
+
+    copied = 0
+    missing = 0
+    for representative, duplicate in duplicates:
+        rep_paths = exp_file_paths(representative)
+        dup_paths = exp_file_paths(duplicate)
+        for key in ("metrics", "stdout"):
+            src = rep_paths[key]
+            dst = dup_paths[key]
+            if not src.exists():
+                missing += 1
+                print(
+                    f"Cannot materialize duplicate {dst.name}: missing {src}",
+                    flush=True,
+                )
+                continue
+            shutil.copyfile(src, dst)
+            copied += 1
+    print(
+        f"Materialized duplicate llmop outputs: copied={copied} missing={missing}",
+        flush=True,
+    )
+
+
 def insert_transfer_ops(ops, args):
     if len(ops) < 2:
         return ops
@@ -696,6 +1224,12 @@ def llm_mixed_config_name(config, op_flags):
     return "sample_wf"
 
 
+def benchmark_for_model(args):
+    if args.model == "resnet":
+        return "resnet"
+    return "llmop"
+
+
 def build_exps(args, ops=None):
     if ops is None:
         ops = prepare_ops(args)
@@ -713,15 +1247,19 @@ def build_exps(args, ops=None):
             f"-mmutlb-lookup-latency={runall2.DEFAULT_MMUTLB_LOOKUP_LATENCY}"
         )
     exps = []
+    benchmark = benchmark_for_model(args)
     for index, (label, flags) in enumerate(ops):
         for config, selected_flags in selected_config_flags(args, flags):
             exp_flags = benchmark_flags(args) + selected_flags + flags
             exp_flags = add_default_photon_flags(args, exp_flags)
             if args.log_subtasks:
-                exp_flags.append("-llmop-log-subtasks")
+                if benchmark == "resnet":
+                    exp_flags.append("-resnet-log-subtasks")
+                else:
+                    exp_flags.append("-llmop-log-subtasks")
             exps.append({
                 "target": args.target,
-                "benchmark": "llmop",
+                "benchmark": benchmark,
                 "config_name": (
                     f"{args.model}_{args.profile}_{index:03d}_{label}_{config}"
                 ),
@@ -729,6 +1267,36 @@ def build_exps(args, ops=None):
                 "flags": exp_flags,
             })
     return exps
+
+
+def resnet_profile(profile_name):
+    if profile_name not in RESNET_PROFILES:
+        raise ValueError(f"unknown ResNet profile {profile_name!r}")
+    return dict(RESNET_PROFILES[profile_name])
+
+
+def resnet_flags(args):
+    profile_config = resnet_profile(args.profile)
+    mode = args.resnet_mode or profile_config["mode"]
+    depth = args.resnet_depth or profile_config["depth"]
+    batch_size = args.resnet_batch_size or profile_config["batch_size"]
+    image_size = args.resnet_image_size or profile_config["image_size"]
+
+    if mode not in {"block", "full"}:
+        raise ValueError("--resnet-mode must be block or full")
+    if depth not in {18, 34, 50}:
+        raise ValueError("--resnet-depth must be 18, 34, or 50")
+    if batch_size <= 0:
+        raise ValueError("--resnet-batch-size must be positive")
+    if image_size <= 0:
+        raise ValueError("--resnet-image-size must be positive")
+
+    return [
+        f"-resnet-mode={mode}",
+        f"-resnet-depth={depth}",
+        f"-resnet-batch-size={batch_size}",
+        f"-resnet-image-size={image_size}",
+    ]
 
 
 def prepare_ops(args):
@@ -743,29 +1311,59 @@ def prepare_ops(args):
         raise ValueError("--cu-per-gpu must be positive")
     if args.max_split_k <= 0:
         raise ValueError("--max-split-k must be positive")
+    if args.split_k_target_input_chunk <= 0:
+        raise ValueError("--split-k-target-input-chunk must be positive")
     if args.log2_page_size <= 0:
         raise ValueError("--log2-page-size must be positive")
 
-    config_split_k = 1 if split_k == "auto" else split_k
-
-    if args.model == "bert":
-        profile_config = dict(bertconfig.profile(args.profile))
-        if args.layers > 0:
-            profile_config["layers"] = args.layers
-        if args.seq_len > 0:
-            profile_config["seq_len"] = args.seq_len
-        ops = bertconfig.bert_ops(profile_config, config_split_k)
+    if args.model == "resnet":
+        ops = [("full", resnet_flags(args))]
     else:
-        profile_config = dict(gptconfig.profile(args.profile))
-        if args.layers > 0:
-            profile_config["layers"] = args.layers
-        if args.seq_len > 0:
-            profile_config["seq_len"] = args.seq_len
-        ops = gptconfig.gpt_ops(profile_config, config_split_k)
-    if split_k == "auto":
+        config_split_k = 1 if split_k == "auto" else split_k
+
+        if args.model == "bert":
+            profile_config = dict(bertconfig.profile(args.profile))
+            if args.layers > 0:
+                profile_config["layers"] = args.layers
+            if args.seq_len > 0:
+                profile_config["seq_len"] = args.seq_len
+            if args.bert_num_labels <= 0:
+                raise ValueError("--bert-num-labels must be positive")
+            profile_config["num_labels"] = args.bert_num_labels
+            ops = bertconfig.bert_ops(profile_config, config_split_k)
+        elif args.model == "gpt":
+            profile_config = dict(gptconfig.profile(args.profile))
+            if args.layers > 0:
+                profile_config["layers"] = args.layers
+            if args.seq_len > 0:
+                profile_config["seq_len"] = args.seq_len
+            if args.gpt_decode_steps < 0:
+                raise ValueError("--gpt-decode-steps must be non-negative")
+            if args.gpt_decode_context_len < 0:
+                raise ValueError("--gpt-decode-context-len must be non-negative")
+            profile_config["decode_steps"] = args.gpt_decode_steps
+            profile_config["decode_context_len"] = (
+                args.gpt_decode_context_len or profile_config["seq_len"]
+            )
+            ops = gptconfig.gpt_ops(profile_config, config_split_k)
+        else:
+            raise ValueError(f"unknown model {args.model!r}")
+        if split_k == "auto":
+            ops = [
+                (label, auto_split_linear_flags(flags, args))
+                for label, flags in ops
+            ]
+        if args.balance_split_k_by_input:
+            ops = [
+                (label, balance_split_linear_flags(flags, args))
+                for label, flags in ops
+            ]
+    label_filters = parse_csv(args.op_label_filter)
+    if label_filters:
         ops = [
-            (label, auto_split_linear_flags(flags, args))
+            (label, flags)
             for label, flags in ops
+            if label_matches_any(label, label_filters)
         ]
     if args.limit > 0:
         ops = ops[:args.limit]
@@ -774,8 +1372,56 @@ def prepare_ops(args):
     return ops
 
 
+def prepare_model_runs(args):
+    runs = []
+    for spec in resolve_model_specs(args):
+        model_args = args_for_model(args, spec)
+        ops = prepare_ops(model_args)
+        runs.append((model_args, ops))
+    return runs
+
+
+def round_robin_lists(items_by_model):
+    out = []
+    max_len = max((len(items) for items in items_by_model), default=0)
+    for index in range(max_len):
+        for items in items_by_model:
+            if index < len(items):
+                out.append(items[index])
+    return out
+
+
+def ordered_model_items(args, items_by_model):
+    if args.model_schedule == "grouped" or len(items_by_model) <= 1:
+        out = []
+        for items in items_by_model:
+            out += items
+        return out
+    return round_robin_lists(items_by_model)
+
+
+def flatten_ops_for_reports(args, model_runs):
+    items_by_model = []
+    for model_args, ops in model_runs:
+        items = []
+        for label, flags in ops:
+            items.append((
+                f"{model_args.model}:{model_args.profile}:{label}",
+                flags,
+            ))
+        items_by_model.append(items)
+    return ordered_model_items(args, items_by_model)
+
+
+def build_model_exps(args, model_runs):
+    exps_by_model = []
+    for model_args, ops in model_runs:
+        exps_by_model.append(build_exps(model_args, ops))
+    return ordered_model_items(args, exps_by_model)
+
+
 def summarize_output(args):
-    summarize_results(Path(runall2.output_dir), args.model, args.profile, True)
+    summarize_results(Path(runall2.output_dir), "", "", True)
 
 
 def parse_result_id(path):
@@ -799,8 +1445,7 @@ def parse_result_id(path):
         raise ValueError(f"invalid op index in {name}") from err
 
     rest = "_".join(parts[5:])
-    config_names = sorted(CONFIG_FLAGS, key=len, reverse=True)
-    for config in config_names:
+    for config in SUMMARY_CONFIG_NAMES:
         marker = "_" + config
         if rest.endswith(marker):
             op_name = rest[: -len(marker)]
@@ -874,7 +1519,7 @@ def parse_stdout(path):
 def matching_records(results_dir, model_filter, profile_filter):
     records = []
     skipped = []
-    for metrics_path in sorted(results_dir.glob("*_llmop_*_metrics.csv")):
+    for metrics_path in sorted(results_dir.glob("*_*_*_metrics.csv")):
         try:
             result_id = parse_result_id(metrics_path)
         except ValueError as err:
@@ -885,7 +1530,7 @@ def matching_records(results_dir, model_filter, profile_filter):
             continue
         if profile_filter and result_id.profile != profile_filter:
             continue
-        if result_id.benchmark != "llmop":
+        if result_id.benchmark not in {"llmop", "resnet"}:
             continue
 
         stdout_path = metrics_path.with_name(
@@ -1086,12 +1731,46 @@ def validate_scheduler_args(args):
 
 def main():
     args = parse_args()
-    ops = prepare_ops(args)
-    exps = build_exps(args, ops)
+    model_runs = prepare_model_runs(args)
+    ops = flatten_ops_for_reports(args, model_runs)
+    exps = build_model_exps(args, model_runs)
     validate_scheduler_args(args)
+    if args.auto_dedupe:
+        args.analyze_ops = True
+        args.dedupe_identical_ops = True
+    if args.dedupe_identical_ops or args.analyze_only:
+        args.analyze_ops = True
+
+    if args.analyze_only:
+        runall2.create_output_dir()
+        write_placement_report(args, ops)
+        write_op_analysis_report(args, ops)
+        if args.dedupe_identical_ops:
+            unique_exps, duplicates = dedupe_experiments(exps)
+            print(
+                "LLM dedupe analysis: "
+                f"original_experiments={len(exps)} "
+                f"unique_experiments={len(unique_exps)} "
+                f"saved={len(duplicates)}",
+                flush=True,
+            )
+            write_dedupe_report(duplicates)
+        return
 
     if args.dry_run:
-        print_dry_run(exps)
+        if args.analyze_ops:
+            print_op_analysis(analyze_ops(ops, args))
+        dry_run_exps = exps
+        if args.dedupe_identical_ops:
+            dry_run_exps, duplicates = dedupe_experiments(exps)
+            print(
+                "LLM dedupe dry-run: "
+                f"original_experiments={len(exps)} "
+                f"unique_experiments={len(dry_run_exps)} "
+                f"saved={len(duplicates)}",
+                flush=True,
+            )
+        print_dry_run(dry_run_exps)
         for index, (label, flags) in enumerate(ops):
             metadata = op_metadata(index, label, flags, args)
             print(
@@ -1107,11 +1786,30 @@ def main():
 
     runall2.create_output_dir()
     write_placement_report(args, ops)
+    if args.analyze_ops:
+        write_op_analysis_report(args, ops)
+
+    run_exps = exps
+    duplicates = []
+    if args.dedupe_identical_ops:
+        run_exps, duplicates = dedupe_experiments(exps)
+        saved = len(exps) - len(run_exps)
+        print(
+            "LLM dedupe: "
+            f"original_experiments={len(exps)} "
+            f"unique_experiments={len(run_exps)} saved={saved}",
+            flush=True,
+        )
+        write_dedupe_report(duplicates)
+
     timeout_seconds = int(args.timeout_minutes * 60)
-    for exp in exps:
+    for exp in run_exps:
         exp["timeout_seconds"] = timeout_seconds
-    runall2.build_targets(exps)
-    runall2.memory_gated_run(exps, args)
+    runall2.build_targets(run_exps)
+    runall2.memory_gated_run(run_exps, args)
+
+    if args.dedupe_identical_ops:
+        materialize_duplicate_outputs(duplicates)
 
     if args.summarize:
         summarize_output(args)

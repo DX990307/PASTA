@@ -49,6 +49,10 @@ type GMMU struct {
 	gpuIDList     []uint64
 	isPrediction  bool
 	demandPTEOnly bool
+
+	latpcFreeReturn8     bool
+	latpcFreeReturnLines int
+	latpcFreeReturnPTEs  int
 }
 
 func (gmmu *GMMU) HasFreePTW() bool {
@@ -200,6 +204,7 @@ func (gmmu *GMMU) processRemoteMemReq(now sim.VTimeInSec, walkingIndex int) bool
 		WithTaskID(walking.TaskID).
 		WithOriginPort(walking.OriginPort).
 		WithPrefetch(walking.IsPrefetch).
+		WithLATPCFromReq(walking).
 		Build()
 	translationtrace.LinkRequest(req.ID, walking.ID)
 
@@ -246,10 +251,15 @@ func (gmmu *GMMU) doPageWalkHit(
 	now sim.VTimeInSec,
 	walkingIndex int,
 ) bool {
-	if !gmmu.topSender.CanSend(1) {
+	walking := gmmu.walkingTranslations[walkingIndex]
+	latpcFreeReturn := gmmu.latpcFreeReturnEnabled()
+	requiredResponses := 1
+	if latpcFreeReturn {
+		requiredResponses += 8
+	}
+	if !gmmu.topSender.CanSend(requiredResponses) {
 		return false
 	}
-	walking := gmmu.walkingTranslations[walkingIndex]
 
 	rsp := vm.TranslationRspBuilder{}.
 		WithSendTime(now).
@@ -264,11 +274,13 @@ func (gmmu *GMMU) doPageWalkHit(
 
 	gmmu.topSender.Send(rsp)
 
-	gmmu.toRemoveFromPTW = append(gmmu.toRemoveFromPTW, walkingIndex)
-
-	if !gmmu.demandPTEOnly && !gmmu.sendToGMMU(now, walking) {
-		return false
+	if !gmmu.demandPTEOnly || latpcFreeReturn {
+		if !gmmu.sendToGMMU(now, walking) {
+			return false
+		}
 	}
+
+	gmmu.toRemoveFromPTW = append(gmmu.toRemoveFromPTW, walkingIndex)
 
 	tracing.TraceReqComplete(walking.req, gmmu)
 
@@ -331,6 +343,10 @@ func (gmmu *GMMU) GetDeviceID() uint64 {
 	return gmmu.deviceID
 }
 
+func (gmmu *GMMU) latpcFreeReturnEnabled() bool {
+	return gmmu.latpcFreeReturn8 && gmmu.demandPTEOnly
+}
+
 func (gmmu *GMMU) sendToGMMU(now sim.VTimeInSec, walking transaction) bool {
 	madeProgress := false
 
@@ -369,6 +385,12 @@ func (gmmu *GMMU) sendToGMMU(now sim.VTimeInSec, walking transaction) bool {
 		}
 		gmmu.topSender.Send(Rsp)
 		madeProgress = true
+		if gmmu.latpcFreeReturnEnabled() {
+			if i == 0 {
+				gmmu.latpcFreeReturnLines++
+			}
+			gmmu.latpcFreeReturnPTEs++
+		}
 
 	}
 	return madeProgress

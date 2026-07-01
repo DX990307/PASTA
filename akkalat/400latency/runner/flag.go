@@ -116,9 +116,23 @@ var disableServersFlag = flag.Bool("disable-servers", false,
 	"Disable profiling and monitoring servers. Useful for automated tests.")
 var log2PageSizeFlag = flag.Uint64("log2-page-size", 12,
 	"GPU page size as log2(bytes). For example 12=4KB, 14=16KB, 15=32KB, 21=2MB.")
+var latpcFlag = flag.Bool("latpc", false,
+	"Enable LATPC, including LATC MSHR compression and LATP page-walk batching.")
+var latpcLATCFlag = flag.Bool("latpc-latc", false,
+	"Enable only the LATC-style L1 TLB MSHR compression portion of LATPC.")
+var latpcLATPFlag = flag.Bool("latpc-latp", false,
+	"Enable only the LATP-style shared-MMU page-walk batching portion of LATPC.")
 
 func configuredLog2PageSize() uint64 {
 	return *log2PageSizeFlag
+}
+
+func latpcLATCEnabled() bool {
+	return *latpcFlag || *latpcLATCFlag
+}
+
+func latpcLATPEnabled() bool {
+	return *latpcFlag || *latpcLATPFlag
 }
 
 // ParseFlag applies the runner flag to runner object

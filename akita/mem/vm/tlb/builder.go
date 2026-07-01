@@ -15,6 +15,8 @@ type Builder struct {
 	isPrediction    bool
 	bloomFilterSize int
 	DeviceID        int
+
+	latpcMSHRCompression bool
 }
 
 // MakeBuilder returns a Builder
@@ -98,6 +100,11 @@ func (b Builder) WithBloomFilterSize(size int) Builder {
 	return b
 }
 
+func (b Builder) WithLATPCMSHRCompression(enabled bool) Builder {
+	b.latpcMSHRCompression = enabled
+	return b
+}
+
 // Build creates a new TLB
 func (b Builder) Build(name string) *TLB {
 	tlb := &TLB{}
@@ -111,12 +118,13 @@ func (b Builder) Build(name string) *TLB {
 	tlb.LowModule = b.lowModule
 	tlb.isPrediction = b.isPrediction
 	tlb.DeviceID = b.DeviceID
+	tlb.latpcMSHRCompression = b.latpcMSHRCompression
 
 	if b.isPrediction {
 		tlb.BloomFilter = NewBloomFilter(b.bloomFilterSize)
 	}
 
-	tlb.mshr = newMSHR(b.numMSHREntry)
+	tlb.mshr = newMSHR(b.numMSHREntry, b.latpcMSHRCompression)
 
 	b.createPorts(name, tlb)
 

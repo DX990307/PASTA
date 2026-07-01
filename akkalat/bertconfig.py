@@ -13,6 +13,7 @@ PROFILES = {
         "heads": 4,
         "layers": 1,
         "intermediate": 32,
+        "num_labels": 2,
     },
     "middle": {
         "batch": 1,
@@ -21,6 +22,7 @@ PROFILES = {
         "heads": 8,
         "layers": 2,
         "intermediate": 2048,
+        "num_labels": 2,
     },
     "bert-base": {
         "batch": 1,
@@ -29,6 +31,7 @@ PROFILES = {
         "heads": 12,
         "layers": 12,
         "intermediate": 3072,
+        "num_labels": 2,
     },
     "bert-large": {
         "batch": 1,
@@ -37,6 +40,7 @@ PROFILES = {
         "heads": 16,
         "layers": 24,
         "intermediate": 4096,
+        "num_labels": 2,
     },
 	"bert-7b-proxy": {
 		"batch": 1,
@@ -45,6 +49,7 @@ PROFILES = {
         "heads": 32,
         "layers": 32,
         "intermediate": 11008,
+        "num_labels": 2,
     },
 }
 
@@ -94,9 +99,13 @@ def bert_ops(profile_config, split_k=1):
     hidden = profile_config["hidden"]
     layers = profile_config["layers"]
     intermediate = profile_config["intermediate"]
+    num_labels = profile_config.get("num_labels", 2)
     rows = batch * seq_len
 
-    ops = [("embedding", op_flags("embedding", rows=rows, hidden=hidden))]
+    ops = [
+        ("embedding_word_position_token_type",
+         op_flags("bert-embedding", rows=rows, hidden=hidden))
+    ]
 
     for layer in range(layers):
         prefix = f"layer{layer:02d}"
@@ -124,5 +133,12 @@ def bert_ops(profile_config, split_k=1):
             (f"{prefix}_norm2",
              op_flags("layernorm", rows=rows, hidden=hidden)),
         ]
+
+    pool_rows = batch
+    ops += [
+        ("pooler_dense", linear(pool_rows, hidden, hidden, split_k)),
+        ("pooler_tanh", op_flags("tanh", elements=pool_rows * hidden)),
+        ("classifier", linear(pool_rows, hidden, num_labels, split_k)),
+    ]
 
     return ops

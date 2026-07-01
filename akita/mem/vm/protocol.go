@@ -21,6 +21,12 @@ type TranslationReq struct {
 	IsPrefetch    bool
 	TransLatency  uint64
 	BitMap        [8]bool
+
+	LATPCValid       bool
+	LATPCBaseVAddr   uint64
+	LATPCStridePages int64
+	LATPCIndex       uint8
+	LATPCValidMask   uint32
 }
 
 // Meta returns the meta data associated with the message.
@@ -43,6 +49,12 @@ type TranslationReqBuilder struct {
 	transLatency  uint64
 	prefetchNums  int
 	isPrefetch    bool
+
+	latpcValid       bool
+	latpcBaseVAddr   uint64
+	latpcStridePages int64
+	latpcIndex       uint8
+	latpcValidMask   uint32
 }
 
 func (b TranslationReqBuilder) WithTransLatency(
@@ -55,6 +67,37 @@ func (b TranslationReqBuilder) WithTransLatency(
 func (b TranslationReqBuilder) WithBitMap(bitMap [8]bool) TranslationReqBuilder {
 	b.bitMap = bitMap
 	return b
+}
+
+func (b TranslationReqBuilder) WithLATPCMetadata(
+	valid bool,
+	baseVAddr uint64,
+	stridePages int64,
+	index uint8,
+	validMask uint32,
+) TranslationReqBuilder {
+	b.latpcValid = valid
+	b.latpcBaseVAddr = baseVAddr
+	b.latpcStridePages = stridePages
+	b.latpcIndex = index
+	b.latpcValidMask = validMask
+	return b
+}
+
+func (b TranslationReqBuilder) WithLATPCFromReq(
+	req *TranslationReq,
+) TranslationReqBuilder {
+	if req == nil {
+		return b
+	}
+
+	return b.WithLATPCMetadata(
+		req.LATPCValid,
+		req.LATPCBaseVAddr,
+		req.LATPCStridePages,
+		req.LATPCIndex,
+		req.LATPCValidMask,
+	)
 }
 
 // WithPrefetchNums sets the number of prefetches to be sent.
@@ -152,6 +195,11 @@ func (b TranslationReqBuilder) Build() *TranslationReq {
 	r.IsPrefetch = b.isPrefetch
 	r.BitMap = b.bitMap
 	r.TransLatency = b.transLatency
+	r.LATPCValid = b.latpcValid
+	r.LATPCBaseVAddr = b.latpcBaseVAddr
+	r.LATPCStridePages = b.latpcStridePages
+	r.LATPCIndex = b.latpcIndex
+	r.LATPCValidMask = b.latpcValidMask
 	return r
 }
 

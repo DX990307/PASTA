@@ -17,7 +17,7 @@ var _ benchmarks.Benchmark = (*Benchmark)(nil)
 
 var (
 	opFlag = flag.String("op", "linear",
-		"LLM op: embedding, linear, split-linear, transfer, layernorm, gelu, residual-add, batchnorm2d, row-softmax, causal-mask, attention, causal-attention, or mlp.")
+		"LLM op: embedding, bert-embedding, linear, split-linear, transfer, layernorm, gelu, tanh, residual-add, batchnorm2d, row-softmax, causal-mask, attention, causal-attention, decode-attention, kv-cache-update, or mlp.")
 	rowsFlag = flag.Int(
 		"rows", 8192, "Row count, usually batch-size * seq-len.")
 	colsFlag = flag.Int(
@@ -34,6 +34,10 @@ var (
 		"seq-len", 0, "Sequence length for attention masks.")
 	batchSizeFlag = flag.Int(
 		"batch-size", 1, "Batch size for attention masks.")
+	kvRowsFlag = flag.Int(
+		"kv-rows", 0, "KV-cache rows for decode-attention and kv-cache-update.")
+	headsFlag = flag.Int(
+		"heads", 1, "Attention head count for decode-attention metadata/logging.")
 	splitKFlag = flag.Int(
 		"split-k", 1, "K-dimension split count for split-linear.")
 	logSubtasksFlag = flag.Bool(
@@ -67,6 +71,8 @@ type Benchmark struct {
 	Elements      int
 	SeqLen        int
 	BatchSize     int
+	KVRows        int
+	Heads         int
 	SplitK        int
 	TransferBytes int
 	SrcGPUs       string
@@ -108,6 +114,8 @@ func (b *Benchmark) ApplyFlags() {
 	b.Elements = *elementsFlag
 	b.SeqLen = *seqLenFlag
 	b.BatchSize = *batchSizeFlag
+	b.KVRows = *kvRowsFlag
+	b.Heads = *headsFlag
 	b.SplitK = *splitKFlag
 	b.TransferBytes = *transferBytesFlag
 	b.SrcGPUs = *srcGPUsFlag
@@ -140,6 +148,8 @@ func (b *Benchmark) Run() {
 	switch b.Op {
 	case "embedding":
 		b.runEmbedding()
+	case "bert-embedding":
+		b.runBERTEmbedding()
 	case "linear":
 		b.runLinear()
 	case "split-linear":
@@ -150,6 +160,8 @@ func (b *Benchmark) Run() {
 		b.runLayerNorm()
 	case "gelu":
 		b.runGELU()
+	case "tanh":
+		b.runTanh()
 	case "residual-add":
 		b.runResidualAdd()
 	case "batchnorm2d":
@@ -162,6 +174,10 @@ func (b *Benchmark) Run() {
 		b.runAttention(false)
 	case "causal-attention":
 		b.runAttention(true)
+	case "decode-attention":
+		b.runDecodeAttention()
+	case "kv-cache-update":
+		b.runKVCacheUpdate()
 	case "mlp":
 		b.runMLP()
 	default:
@@ -177,6 +193,13 @@ func (b *Benchmark) runEmbedding() {
 	b.requirePositive("rows", b.Rows)
 	b.requirePositive("hidden", b.Hidden)
 	out := b.ops.Embedding("embedding", b.Rows, b.Hidden)
+	b.ops.Free(out)
+}
+
+func (b *Benchmark) runBERTEmbedding() {
+	b.requirePositive("rows", b.Rows)
+	b.requirePositive("hidden", b.Hidden)
+	out := b.ops.BERTEmbedding("bert embedding", b.Rows, b.Hidden)
 	b.ops.Free(out)
 }
 
@@ -249,6 +272,14 @@ func (b *Benchmark) runGELU() {
 	b.ops.Free(out)
 }
 
+func (b *Benchmark) runTanh() {
+	elements := b.elementCount()
+	input := b.ops.Input("tanh", []int{elements})
+	out := b.ops.Tanh("tanh", input)
+	b.ops.Free(input)
+	b.ops.Free(out)
+}
+
 func (b *Benchmark) runResidualAdd() {
 	elements := b.elementCount()
 	a := b.ops.Input("residual a", []int{elements})
@@ -306,6 +337,44 @@ func (b *Benchmark) runAttention(causal bool) {
 		"attention", input, b.Rows, b.Hidden, 1, b.SeqLen, b.BatchSize, causal)
 	b.ops.Free(input)
 	b.ops.Free(out)
+}
+
+func (b *Benchmark) runDecodeAttention() {
+	b.requirePositive("rows", b.Rows)
+	b.requirePositive("hidden", b.Hidden)
+	kvRows := b.KVRows
+	if kvRows <= 0 && b.SeqLen > 0 {
+		kvRows = b.SeqLen * b.BatchSize
+	}
+	if kvRows <= 0 {
+		log.Panic("set -kv-rows or set both -seq-len and -batch-size")
+	}
+	heads := b.Heads
+	if heads <= 0 {
+		heads = 1
+	}
+	input := b.ops.Input("decode attention", []int{b.Rows, b.Hidden})
+	out := b.ops.DecodeAttention(
+		"decode attention", input, b.Rows, kvRows, b.Hidden, heads)
+	b.ops.Free(input)
+	b.ops.Free(out)
+}
+
+func (b *Benchmark) runKVCacheUpdate() {
+	b.requirePositive("rows", b.Rows)
+	b.requirePositive("hidden", b.Hidden)
+	b.requirePositive("kv-rows", b.KVRows)
+	if b.KVRows < b.Rows {
+		log.Panic("-kv-rows must be >= -rows")
+	}
+	kNew := b.ops.Input("k new", []int{b.Rows, b.Hidden})
+	vNew := b.ops.Input("v new", []int{b.Rows, b.Hidden})
+	kCache, vCache := b.ops.KVCacheUpdate(
+		"kv cache", kNew, vNew, b.Rows, b.Hidden, b.KVRows)
+	b.ops.Free(kNew)
+	b.ops.Free(vNew)
+	b.ops.Free(kCache)
+	b.ops.Free(vCache)
 }
 
 func (b *Benchmark) runMLP() {

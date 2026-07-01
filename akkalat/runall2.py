@@ -188,6 +188,7 @@ PTCL_CONFIG_NAMES = [
 EXTRA_PTCL_CONFIG_NAMES = [
     "idle_iommu_assist",
     "ptcl_mode_flex_iommu_assist",
+    "latpc",
 ]
 
 ABLATION_STUDY_CONFIG_NAMES = [
@@ -670,6 +671,10 @@ def build_ptcl_config_map(args):
         + PTW_DEMAND_PTE_ONLY_FLAGS
         + baseline_gmmu_lookup_flags()
         + ["-gmmu-idle-iommu-assist"],
+        "latpc": VPN_MSHR_BASELINE_FLAGS
+        + PTW_DEMAND_PTE_ONLY_FLAGS
+        + baseline_gmmu_lookup_flags()
+        + ["-latpc"],
         "flex_entry": VPN_MSHR_BASELINE_FLAGS + flex_flags,
         "ptcl_mode": adaptive_flags(low, high) + ptcl_gmmu_lookup_flags(args),
         "ptcl_parallel": adaptive_flags(low, high) + ptcl_gmmu_lookup_flags(args),

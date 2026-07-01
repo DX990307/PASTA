@@ -50,8 +50,12 @@ type MMU struct {
 	PageAccessedByDeviceID  map[uint64][]uint64
 	walkCoalescingEnabled   bool
 	demandPTEOnly           bool
+	latpcPageWalkBatching   bool
 	lastLevelCoalescedCount int
 	twoLevelCoalescedCount  int
+	latpcCoalescedCount     int
+	latpcFreeReturnLines    int
+	latpcFreeReturnPTEs     int
 
 	// PWqueue        []sim.Msg
 	PWqueue        []PWqueue
@@ -156,7 +160,13 @@ func (mmu *MMU) doPageWalkHit(
 
 	madeProgress := false
 
-	if !mmu.topSender.CanSend(1) {
+	requiredResponses := 1
+	latpcFreeReturn := mmu.latpcFreeReturnEnabled()
+	if latpcFreeReturn {
+		requiredResponses += 8
+	}
+
+	if !mmu.topSender.CanSend(requiredResponses) {
 		return false
 	}
 
@@ -178,7 +188,7 @@ func (mmu *MMU) doPageWalkHit(
 	mmu.topSender.Send(rsp)
 
 	madeProgress = true
-	if !mmu.demandPTEOnly {
+	if !mmu.demandPTEOnly || latpcFreeReturn {
 		madeProgress = mmu.sendToGMMU(now, walking) || madeProgress
 	}
 
@@ -194,8 +204,22 @@ func (mmu *MMU) doPTCLPageWalkHit(
 	walkingIndex int,
 ) bool {
 	walking := mmu.walkingTranslations[walkingIndex]
+	latpcFreeReturn := mmu.latpcFreeReturnEnabled()
+	if latpcFreeReturn {
+		requested := len(mmu.collectRequestedPages(walking.req))
+		if !mmu.topSender.CanSend(requested + 8) {
+			return false
+		}
+	}
+
 	if !mmu.sendPTCLResponses(now, walking.req) {
 		return false
+	}
+
+	if latpcFreeReturn {
+		if !mmu.sendToGMMU(now, walking) {
+			return false
+		}
 	}
 
 	mmu.toRemoveFromPTW = append(mmu.toRemoveFromPTW, walkingIndex)
@@ -605,6 +629,12 @@ func unique(intSlice []uint64) []uint64 {
 	return list
 }
 
+func (mmu *MMU) latpcFreeReturnEnabled() bool {
+	return mmu.latpcPageWalkBatching &&
+		mmu.demandPTEOnly &&
+		mmu.TopModule != nil
+}
+
 func (mmu *MMU) sendToGMMU(now sim.VTimeInSec, walking transaction) bool {
 	madeProgress := false
 
@@ -641,6 +671,12 @@ func (mmu *MMU) sendToGMMU(now sim.VTimeInSec, walking transaction) bool {
 		}
 		mmu.topSender.Send(rsp)
 		madeProgress = true
+		if mmu.latpcPageWalkBatching {
+			if i == 0 {
+				mmu.latpcFreeReturnLines++
+			}
+			mmu.latpcFreeReturnPTEs++
+		}
 
 		// fmt.Printf("sendToGMMU %d\n", page.VAddr>>12)
 	}
@@ -671,14 +707,36 @@ func (mmu *MMU) isInTheSameTwoLevels(vAddr1, vAddr2 uint64) bool {
 	return (baseVPN1 >> 12) == (baseVPN2 >> 12)
 }
 
+func (mmu *MMU) isInTheSameLATPCBatch(a, b *vm.TranslationReq) bool {
+	if !mmu.latpcPageWalkBatching || a == nil || b == nil {
+		return false
+	}
+	if !a.LATPCValid || !b.LATPCValid || a.PID != b.PID {
+		return false
+	}
+	if a.LATPCStridePages == 0 || b.LATPCStridePages == 0 {
+		return false
+	}
+	return a.LATPCBaseVAddr == b.LATPCBaseVAddr &&
+		a.LATPCStridePages == b.LATPCStridePages
+}
+
 func (mmu *MMU) coalescedUpperLatency(req *vm.TranslationReq) uint64 {
 	upperLatency := req.TransLatency
-	if !mmu.walkCoalescingEnabled {
+	if !mmu.walkCoalescingEnabled && !mmu.latpcPageWalkBatching {
 		return upperLatency
 	}
 
 	for _, walking := range mmu.walkingTranslations {
 		if walking.req == nil || walking.req.PID != req.PID {
+			continue
+		}
+
+		if mmu.isInTheSameLATPCBatch(req, walking.req) {
+			mmu.latpcCoalescedCount++
+			return 0
+		}
+		if !mmu.walkCoalescingEnabled {
 			continue
 		}
 

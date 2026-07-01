@@ -11,3 +11,15 @@ func (mmu *MMU) WalkCoalescingEnabled() bool {
 func (mmu *MMU) CoalescingStats() (lastLevel int, twoLevel int) {
 	return mmu.lastLevelCoalescedCount, mmu.twoLevelCoalescedCount
 }
+
+func (mmu *MMU) LATPCPageWalkBatchingEnabled() bool {
+	return mmu.latpcPageWalkBatching
+}
+
+func (mmu *MMU) LATPCCoalescingStats() int {
+	return mmu.latpcCoalescedCount
+}
+
+func (mmu *MMU) LATPCFreeReturnStats() (lines int, ptes int) {
+	return mmu.latpcFreeReturnLines, mmu.latpcFreeReturnPTEs
+}

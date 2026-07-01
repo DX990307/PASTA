@@ -19,6 +19,7 @@ type Builder struct {
 	gpuIDList          []uint64
 	isPrediction       bool
 	demandPTEOnly      bool
+	latpcFreeReturn8   bool
 }
 
 // MakeBuilder creates a new builder
@@ -39,6 +40,11 @@ func (b Builder) WithIsPrediction(isPrediction bool) Builder {
 
 func (b Builder) WithDemandPTEOnly(enabled bool) Builder {
 	b.demandPTEOnly = enabled
+	return b
+}
+
+func (b Builder) WithLATPCFreeReturn8(enabled bool) Builder {
+	b.latpcFreeReturn8 = enabled
 	return b
 }
 
@@ -111,6 +117,7 @@ func (b Builder) configureInternalStates(gmmu *GMMU) {
 	gmmu.LowModule = b.lowModule
 	gmmu.isPrediction = b.isPrediction
 	gmmu.demandPTEOnly = b.demandPTEOnly
+	gmmu.latpcFreeReturn8 = b.latpcFreeReturn8
 	gmmu.gpuIDList = b.gpuIDList
 	gmmu.log2PageSize = b.log2PageSize
 }

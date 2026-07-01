@@ -16,6 +16,7 @@ func (r *Runner) reportStats() {
 	r.reportRDMALatency()
 	r.reportCacheHitRate()
 	r.reportTLBHitRate()
+	r.reportGMMUCacheHitRate()
 	r.reportTLBLatency()
 	r.reportRDMATransactionCount()
 	// r.reportGMMUTransactionCount()
@@ -286,9 +287,48 @@ func (r *Runner) reportGMMUCacheHitRate() {
 	for _, tracer := range r.gmmuCacheHitRateTracers {
 		low, high := tracer.gmmuCache.PTCLThresholds()
 		toPTCL, toPTE := tracer.gmmuCache.ModeSwitchCounts()
+		mshrReturnedEntries, mshrReturnedBitmapBitsSum,
+			mshrReturnedBitmapBitsMax, mshrReturnedBitmapHist :=
+			tracer.gmmuCache.MSHRReturnBitmapStats()
+		ptclPTEUtil := tracer.gmmuCache.PTCLPTEUtilizationStats()
 		ptclModeEnabled := 0.0
 		if tracer.gmmuCache.PTCLModeEnabled() {
 			ptclModeEnabled = 1.0
+		}
+		mshrReturnedBitmapBitsAvg := 0.0
+		if mshrReturnedEntries > 0 {
+			mshrReturnedBitmapBitsAvg =
+				float64(mshrReturnedBitmapBitsSum) / float64(mshrReturnedEntries)
+		}
+		ptclPTERetiredFetchUtilization := 0.0
+		if ptclPTEUtil.RetiredFetchedBits > 0 {
+			ptclPTERetiredFetchUtilization =
+				float64(ptclPTEUtil.RetiredUsedBits) /
+					float64(ptclPTEUtil.RetiredFetchedBits)
+		}
+		ptclPTERetiredInstallUtilization := 0.0
+		if ptclPTEUtil.RetiredInstalledBits > 0 {
+			ptclPTERetiredInstallUtilization =
+				float64(ptclPTEUtil.RetiredUsedBits) /
+					float64(ptclPTEUtil.RetiredInstalledBits)
+		}
+		ptclPTEObservedFetchedBits :=
+			ptclPTEUtil.RetiredFetchedBits + ptclPTEUtil.LiveFetchedBits
+		ptclPTEObservedInstalledBits :=
+			ptclPTEUtil.RetiredInstalledBits + ptclPTEUtil.LiveInstalledBits
+		ptclPTEObservedUsedBits :=
+			ptclPTEUtil.RetiredUsedBits + ptclPTEUtil.LiveUsedBits
+		ptclPTEObservedFetchUtilization := 0.0
+		if ptclPTEObservedFetchedBits > 0 {
+			ptclPTEObservedFetchUtilization =
+				float64(ptclPTEObservedUsedBits) /
+					float64(ptclPTEObservedFetchedBits)
+		}
+		ptclPTEObservedInstallUtilization := 0.0
+		if ptclPTEObservedInstalledBits > 0 {
+			ptclPTEObservedInstallUtilization =
+				float64(ptclPTEObservedUsedBits) /
+					float64(ptclPTEObservedInstalledBits)
 		}
 
 		r.metricsCollector.Collect(
@@ -306,6 +346,140 @@ func (r *Runner) reportGMMUCacheHitRate() {
 			tracer.gmmuCache.Name(), "ptcl_switch_to_ptcl", float64(toPTCL))
 		r.metricsCollector.Collect(
 			tracer.gmmuCache.Name(), "ptcl_switch_to_pte", float64(toPTE))
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"mshr_returned_entries",
+			float64(mshrReturnedEntries),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"mshr_returned_uplevel_bitmap_bits_sum",
+			float64(mshrReturnedBitmapBitsSum),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"mshr_returned_uplevel_bitmap_bits_avg",
+			mshrReturnedBitmapBitsAvg,
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"mshr_returned_uplevel_bitmap_bits_max",
+			float64(mshrReturnedBitmapBitsMax),
+		)
+		for bits, count := range mshrReturnedBitmapHist {
+			r.metricsCollector.Collect(
+				tracer.gmmuCache.Name(),
+				"mshr_returned_uplevel_bitmap_bits_hist_"+strconv.Itoa(bits),
+				float64(count),
+			)
+		}
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_fetch_events",
+			float64(ptclPTEUtil.FetchEvents),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_fetched_bits",
+			float64(ptclPTEUtil.FetchedBits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_installed_bits",
+			float64(ptclPTEUtil.InstalledBits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_immediate_used_bits",
+			float64(ptclPTEUtil.ImmediateUsedBits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_retired_lines",
+			float64(ptclPTEUtil.RetiredLines),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_retired_fetched_bits",
+			float64(ptclPTEUtil.RetiredFetchedBits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_retired_installed_bits",
+			float64(ptclPTEUtil.RetiredInstalledBits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_retired_used_bits",
+			float64(ptclPTEUtil.RetiredUsedBits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_retired_demand_used_bits",
+			float64(ptclPTEUtil.RetiredDemandUsedBits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_retired_extra_used_bits",
+			float64(ptclPTEUtil.RetiredExtraUsedBits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_retired_fetch_utilization",
+			ptclPTERetiredFetchUtilization,
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_retired_install_utilization",
+			ptclPTERetiredInstallUtilization,
+		)
+		for bits, count := range ptclPTEUtil.RetiredUsedBitsHist {
+			r.metricsCollector.Collect(
+				tracer.gmmuCache.Name(),
+				"ptcl_pte_retired_used_bits_hist_"+strconv.Itoa(bits),
+				float64(count),
+			)
+		}
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_live_lines",
+			float64(ptclPTEUtil.LiveLines),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_live_fetched_bits",
+			float64(ptclPTEUtil.LiveFetchedBits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_live_installed_bits",
+			float64(ptclPTEUtil.LiveInstalledBits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_live_used_bits",
+			float64(ptclPTEUtil.LiveUsedBits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_live_demand_used_bits",
+			float64(ptclPTEUtil.LiveDemandUsedBits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_live_extra_used_bits",
+			float64(ptclPTEUtil.LiveExtraUsedBits),
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_observed_fetch_utilization",
+			ptclPTEObservedFetchUtilization,
+		)
+		r.metricsCollector.Collect(
+			tracer.gmmuCache.Name(),
+			"ptcl_pte_observed_install_utilization",
+			ptclPTEObservedInstallUtilization,
+		)
 
 		hit := tracer.tracer.GetStepCount("hit")
 		miss := tracer.tracer.GetStepCount("miss")

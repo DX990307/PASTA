@@ -33,6 +33,12 @@ type TLB struct {
 	mshr                mshr
 	respondingMSHREntry *mshrEntry
 
+	latpcMSHRCompression   bool
+	latpcMetadataGenerated uint64
+	latpcCompressedMisses  uint64
+	latpcBottomReqs        uint64
+	latpcMSHRFullStalls    uint64
+
 	isPrediction bool
 	BloomFilter  *BloomFilter
 
@@ -118,6 +124,7 @@ func (tlb *TLB) lookup(now sim.VTimeInSec) bool {
 	}
 
 	req := msg.(*vm.TranslationReq)
+	tlb.prepareLATPC(req)
 
 	// if tlb.DeviceID == 1 {
 	// 	vpn := req.VAddr >> 12
@@ -164,7 +171,10 @@ func (tlb *TLB) handleTranslationMiss(
 	now sim.VTimeInSec,
 	req *vm.TranslationReq,
 ) bool {
-	if tlb.mshr.IsFull() {
+	if !tlb.mshr.CanAddReq(req) {
+		if tlb.latpcMSHRCompression {
+			tlb.latpcMSHRFullStalls++
+		}
 		return false
 	}
 
@@ -213,7 +223,7 @@ func (tlb *TLB) processTLBMSHRHit(
 	mshrEntry *mshrEntry,
 	req *vm.TranslationReq,
 ) bool {
-	mshrEntry.Requests = append(mshrEntry.Requests, req)
+	mshrEntry.addRequest(req)
 
 	tlb.topPort.Retrieve(now)
 	tracing.TraceReqReceive(req, tlb)
@@ -223,25 +233,36 @@ func (tlb *TLB) processTLBMSHRHit(
 }
 
 func (tlb *TLB) fetchBottom(now sim.VTimeInSec, req *vm.TranslationReq) bool {
+	deviceID := req.DeviceID
+	if tlb.DeviceID != 0 {
+		deviceID = uint64(tlb.DeviceID)
+	}
+
 	fetchBottom := vm.TranslationReqBuilder{}.
 		WithSendTime(now).
 		WithSrc(tlb.bottomPort).
 		WithDst(tlb.LowModule).
 		WithPID(req.PID).
 		WithVAddr(req.VAddr).
-		WithDeviceID(uint64(tlb.DeviceID)).
+		WithDeviceID(deviceID).
 		WithTaskID(req.TaskID).
 		WithOriginPort(tlb.bottomPort).
 		WithNeedTranslate(false).
+		WithLATPCFromReq(req).
 		Build()
 	err := tlb.bottomPort.Send(fetchBottom)
 	if err != nil {
 		return false
 	}
 
-	mshrEntry := tlb.mshr.Add(req.PID, req.VAddr)
-	mshrEntry.Requests = append(mshrEntry.Requests, req)
-	mshrEntry.reqToBottom = fetchBottom
+	mshrEntry, compressed := tlb.mshr.AddReq(req)
+	mshrEntry.recordBottomReq(req, fetchBottom)
+	if tlb.latpcMSHRCompression {
+		tlb.latpcBottomReqs++
+		if compressed {
+			tlb.latpcCompressedMisses++
+		}
+	}
 
 	tracing.TraceReqInitiate(fetchBottom, tlb,
 		tracing.MsgIDAtReceiver(req, tlb))
@@ -269,8 +290,8 @@ func (tlb *TLB) parseBottom(now sim.VTimeInSec) bool {
 	// 	fmt.Sprintf("TLB: %v\n", tlb)
 	// }
 
-	mshrEntryPresent := tlb.mshr.IsEntryPresent(rsp.Page.PID, rsp.Page.VAddr)
-	if !mshrEntryPresent {
+	mshrEntry, ready := tlb.mshr.Ready(rsp.Page.PID, rsp.Page.VAddr, page)
+	if !ready {
 		tlb.bottomPort.Retrieve(now)
 		return true
 	}
@@ -284,15 +305,39 @@ func (tlb *TLB) parseBottom(now sim.VTimeInSec) bool {
 	set.Update(wayID, page)
 	set.Visit(wayID)
 
-	mshrEntry := tlb.mshr.GetEntry(rsp.Page.PID, rsp.Page.VAddr)
 	tlb.respondingMSHREntry = mshrEntry
-	mshrEntry.page = page
 
-	tlb.mshr.Remove(rsp.Page.PID, rsp.Page.VAddr)
 	tlb.bottomPort.Retrieve(now)
-	tracing.TraceReqFinalize(mshrEntry.reqToBottom, tlb)
+	if mshrEntry.reqToBottom != nil {
+		tracing.TraceReqFinalize(mshrEntry.reqToBottom, tlb)
+	}
 
 	return true
+}
+
+func (tlb *TLB) prepareLATPC(req *vm.TranslationReq) {
+	if !tlb.latpcMSHRCompression || req == nil || req.LATPCValid || tlb.pageSize == 0 {
+		return
+	}
+
+	vpn := req.VAddr / tlb.pageSize
+	index := uint8(vpn & 31)
+	baseVPN := vpn &^ uint64(31)
+
+	req.LATPCValid = true
+	req.LATPCBaseVAddr = baseVPN * tlb.pageSize
+	req.LATPCStridePages = 1
+	req.LATPCIndex = index
+	req.LATPCValidMask = 1 << index
+	tlb.latpcMetadataGenerated++
+}
+
+func (tlb *TLB) LATPCStats() (bool, uint64, uint64, uint64, uint64) {
+	return tlb.latpcMSHRCompression,
+		tlb.latpcMetadataGenerated,
+		tlb.latpcCompressedMisses,
+		tlb.latpcBottomReqs,
+		tlb.latpcMSHRFullStalls
 }
 
 func (tlb *TLB) performCtrlReq(now sim.VTimeInSec) bool {

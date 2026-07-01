@@ -1628,7 +1628,8 @@ func (tlb *GMMUTLB) sendDownstream(
 		WithDeviceID(tlb.DeviceID).
 		WithTaskID(req.TaskID).
 		WithOriginPort(req.OriginPort).
-		WithBitMap(bitmap)
+		WithBitMap(bitmap).
+		WithLATPCFromReq(req)
 
 	if page.DeviceID != tlb.DeviceID {
 		if tlb.IOMMUPort == nil {
@@ -1731,6 +1732,7 @@ func (tlb *GMMUTLB) sendDownstreamToIOMMU(
 		WithTaskID(req.TaskID).
 		WithOriginPort(req.OriginPort).
 		WithBitMap(bitmap).
+		WithLATPCFromReq(req).
 		Build()
 	translatedReq.StartGPUID = req.StartGPUID
 

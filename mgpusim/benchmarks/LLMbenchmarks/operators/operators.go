@@ -17,11 +17,17 @@ var residualAddKernelBytes []byte
 //go:embed native/gelu.hsaco
 var geluKernelBytes []byte
 
+//go:embed native/tanh.hsaco
+var tanhKernelBytes []byte
+
 //go:embed native/layernorm.hsaco
 var layerNormKernelBytes []byte
 
 //go:embed native/embedding_synthetic.hsaco
 var embeddingKernelBytes []byte
+
+//go:embed native/bert_embedding_synthetic.hsaco
+var bertEmbeddingKernelBytes []byte
 
 //go:embed native/batchnorm2d_inference.hsaco
 var batchNormKernelBytes []byte
@@ -31,6 +37,9 @@ var causalMaskKernelBytes []byte
 
 //go:embed native/row_softmax.hsaco
 var rowSoftmaxKernelBytes []byte
+
+//go:embed native/kvcache_update.hsaco
+var kvCacheUpdateKernelBytes []byte
 
 // Operator wraps the existing GPU tensor operator with model-oriented helpers.
 // The package intentionally lives under LLMbenchmarks so ResNet, BERT, and GPT
@@ -42,13 +51,16 @@ type Operator struct {
 	logSubtasks bool
 	prefix      string
 
-	residualAddKernel *insts.HsaCo
-	geluKernel        *insts.HsaCo
-	layerNormKernel   *insts.HsaCo
-	embeddingKernel   *insts.HsaCo
-	batchNormKernel   *insts.HsaCo
-	causalMaskKernel  *insts.HsaCo
-	rowSoftmaxKernel  *insts.HsaCo
+	residualAddKernel   *insts.HsaCo
+	geluKernel          *insts.HsaCo
+	tanhKernel          *insts.HsaCo
+	layerNormKernel     *insts.HsaCo
+	embeddingKernel     *insts.HsaCo
+	bertEmbeddingKernel *insts.HsaCo
+	batchNormKernel     *insts.HsaCo
+	causalMaskKernel    *insts.HsaCo
+	rowSoftmaxKernel    *insts.HsaCo
+	kvCacheUpdateKernel *insts.HsaCo
 }
 
 // NewOperator creates an LLMbenchmark operator wrapper.
@@ -100,11 +112,14 @@ func (o *Operator) Input(name string, size []int) Tensor {
 func (o *Operator) loadKernels() {
 	o.residualAddKernel = loadKernel(residualAddKernelBytes, "llm_residual_add")
 	o.geluKernel = loadKernel(geluKernelBytes, "llm_gelu")
+	o.tanhKernel = loadKernel(tanhKernelBytes, "llm_tanh")
 	o.layerNormKernel = loadKernel(layerNormKernelBytes, "llm_layernorm")
 	o.embeddingKernel = loadKernel(embeddingKernelBytes, "llm_embedding_synthetic")
+	o.bertEmbeddingKernel = loadKernel(bertEmbeddingKernelBytes, "llm_bert_embedding_synthetic")
 	o.batchNormKernel = loadKernel(batchNormKernelBytes, "llm_batchnorm2d_inference")
 	o.causalMaskKernel = loadKernel(causalMaskKernelBytes, "llm_apply_causal_mask")
 	o.rowSoftmaxKernel = loadKernel(rowSoftmaxKernelBytes, "llm_row_softmax")
+	o.kvCacheUpdateKernel = loadKernel(kvCacheUpdateKernelBytes, "llm_kv_cache_update")
 }
 
 func loadKernel(data []byte, name string) *insts.HsaCo {
@@ -143,6 +158,12 @@ type geluArgs struct {
 	OffsetX, OffsetY, OffsetZ int64
 }
 
+type tanhArgs struct {
+	Out, In                   driver.Ptr
+	N, Padding                int32
+	OffsetX, OffsetY, OffsetZ int64
+}
+
 type layerNormArgs struct {
 	Out, In                   driver.Ptr
 	Rows, Hidden              int32
@@ -157,6 +178,14 @@ type embeddingArgs struct {
 	Rows, Hidden, VocabSize   int32
 	Padding                   int32
 	OffsetX, OffsetY, OffsetZ int64
+}
+
+type bertEmbeddingArgs struct {
+	Out, TokenIDs, TokenTypeIDs               driver.Ptr
+	TokenTable, PositionTable, TokenTypeTable driver.Ptr
+	Rows, Hidden, VocabSize                   int32
+	Padding                                   int32
+	OffsetX, OffsetY, OffsetZ                 int64
 }
 
 type batchNorm2DInferenceArgs struct {
@@ -180,6 +209,14 @@ type causalMaskArgs struct {
 type rowSoftmaxArgs struct {
 	Out, In                   driver.Ptr
 	Rows, Cols                int32
+	OffsetX, OffsetY, OffsetZ int64
+}
+
+type kvCacheUpdateArgs struct {
+	KCache, VCache            driver.Ptr
+	KNew, VNew                driver.Ptr
+	Rows, Hidden, KVRows      int32
+	Padding                   int32
 	OffsetX, OffsetY, OffsetZ int64
 }
 
@@ -215,6 +252,52 @@ func (o *Operator) Embedding(name string, rows, hidden int) Tensor {
 	o.driver.FreeMemory(o.ctx, tokenIDs)
 	o.Free(tokenTable)
 	o.Free(positionTable)
+	return out
+}
+
+// BERTEmbedding gathers token, position, and token-type vectors.
+func (o *Operator) BERTEmbedding(name string, rows, hidden int) Tensor {
+	o.Log("%s bert embedding rows=%d hidden=%d", name, rows, hidden)
+	vocabSize := embeddingVocabSize(rows)
+	out := o.to.Create([]int{rows, hidden})
+	tokenTable := o.to.Create([]int{vocabSize, hidden})
+	positionTable := o.to.Create([]int{rows, hidden})
+	tokenTypeTable := o.to.Create([]int{2, hidden})
+	tokenIDs := o.driver.AllocateMemory(o.ctx, uint64(rows*4))
+	tokenTypeIDs := o.driver.AllocateMemory(o.ctx, uint64(rows*4))
+
+	hTokenIDs := make([]int32, rows)
+	hTokenTypeIDs := make([]int32, rows)
+	for i := range hTokenIDs {
+		hTokenIDs[i] = int32(i % vocabSize)
+		if rows > 1 && i >= rows/2 {
+			hTokenTypeIDs[i] = 1
+		}
+	}
+	o.driver.MemCopyH2D(o.ctx, tokenIDs, hTokenIDs)
+	o.driver.MemCopyH2D(o.ctx, tokenTypeIDs, hTokenTypeIDs)
+
+	args := bertEmbeddingArgs{
+		Out:            ptr(out),
+		TokenIDs:       tokenIDs,
+		TokenTypeIDs:   tokenTypeIDs,
+		TokenTable:     ptr(tokenTable),
+		PositionTable:  ptr(positionTable),
+		TokenTypeTable: ptr(tokenTypeTable),
+		Rows:           int32(rows),
+		Hidden:         int32(hidden),
+		VocabSize:      int32(vocabSize),
+	}
+	o.driver.LaunchKernel(o.ctx, o.bertEmbeddingKernel,
+		launch1DSize(rows*hidden),
+		[3]uint16{64, 1, 1},
+		&args)
+
+	o.driver.FreeMemory(o.ctx, tokenIDs)
+	o.driver.FreeMemory(o.ctx, tokenTypeIDs)
+	o.Free(tokenTable)
+	o.Free(positionTable)
+	o.Free(tokenTypeTable)
 	return out
 }
 
@@ -372,6 +455,50 @@ func (o *Operator) GELU(name string, input Tensor) Tensor {
 		[3]uint16{64, 1, 1},
 		&args)
 	return out
+}
+
+// Tanh applies the BERT pooler activation elementwise.
+func (o *Operator) Tanh(name string, input Tensor) Tensor {
+	o.Log("%s tanh elements=%d", name, input.NumElement())
+	out := o.to.Create(input.Size())
+	args := tanhArgs{
+		Out: ptr(out),
+		In:  ptr(input),
+		N:   int32(input.NumElement()),
+	}
+	o.driver.LaunchKernel(o.ctx, o.tanhKernel,
+		launch1DSize(input.NumElement()),
+		[3]uint16{64, 1, 1},
+		&args)
+	return out
+}
+
+// KVCacheUpdate writes a newly produced K/V token into existing K/V caches.
+func (o *Operator) KVCacheUpdate(
+	name string,
+	kNew, vNew Tensor,
+	rows, hidden, kvRows int,
+) (Tensor, Tensor) {
+	o.Log("%s kv-cache update rows=%d kv_rows=%d hidden=%d",
+		name, rows, kvRows, hidden)
+	kNew.SetSize([]int{rows, hidden})
+	vNew.SetSize([]int{rows, hidden})
+	kCache := o.to.Create([]int{kvRows, hidden})
+	vCache := o.to.Create([]int{kvRows, hidden})
+	args := kvCacheUpdateArgs{
+		KCache: ptr(kCache),
+		VCache: ptr(vCache),
+		KNew:   ptr(kNew),
+		VNew:   ptr(vNew),
+		Rows:   int32(rows),
+		Hidden: int32(hidden),
+		KVRows: int32(kvRows),
+	}
+	o.driver.LaunchKernel(o.ctx, o.kvCacheUpdateKernel,
+		launch1DSize(rows*hidden),
+		[3]uint16{64, 1, 1},
+		&args)
+	return kCache, vCache
 }
 
 // SelfAttention performs a forward self-attention block using real GEMM and

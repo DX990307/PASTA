@@ -890,6 +890,7 @@ func (tlb *TLB) issueBottomReqs(
 		WithTaskID(req.TaskID).
 		WithOriginPort(req.OriginPort).
 		WithBitMap(bitmap).
+		WithLATPCFromReq(req).
 		Build()
 	reqToBottom.StartGPUID = req.StartGPUID
 

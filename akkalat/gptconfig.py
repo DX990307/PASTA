@@ -108,8 +108,11 @@ def gpt_ops(profile_config, split_k=1):
     batch = profile_config["batch"]
     seq_len = profile_config["seq_len"]
     hidden = profile_config["hidden"]
+    heads = profile_config["heads"]
     layers = profile_config["layers"]
     intermediate = profile_config["intermediate"]
+    decode_steps = profile_config.get("decode_steps", 0)
+    decode_context_len = profile_config.get("decode_context_len", seq_len)
     rows = batch * seq_len
 
     ops = [("embedding", op_flags("embedding", rows=rows, hidden=hidden))]
@@ -144,5 +147,44 @@ def gpt_ops(profile_config, split_k=1):
             (f"{prefix}_mlp_residual",
              op_flags("residual-add", elements=rows * hidden)),
         ]
+
+    decode_rows = batch
+    for step in range(decode_steps):
+        step_prefix = f"decode{step:02d}"
+        kv_rows = batch * (decode_context_len + step)
+        ops += [
+            (f"{step_prefix}_embedding",
+             op_flags("embedding", rows=decode_rows, hidden=hidden)),
+        ]
+        for layer in range(layers):
+            prefix = f"{step_prefix}_layer{layer:02d}"
+            ops += [
+                (f"{prefix}_norm1",
+                 op_flags("layernorm", rows=decode_rows, hidden=hidden)),
+                (f"{prefix}_attn_k_new",
+                 linear(decode_rows, hidden, hidden, split_k)),
+                (f"{prefix}_attn_v_new",
+                 linear(decode_rows, hidden, hidden, split_k)),
+                (f"{prefix}_kv_cache_update",
+                 op_flags(
+                     "kv-cache-update", rows=decode_rows, hidden=hidden,
+                     kv_rows=kv_rows, heads=heads)),
+                (f"{prefix}_decode_attention",
+                 op_flags(
+                     "decode-attention", rows=decode_rows, hidden=hidden,
+                     kv_rows=kv_rows, heads=heads)),
+                (f"{prefix}_attn_residual",
+                 op_flags("residual-add", elements=decode_rows * hidden)),
+                (f"{prefix}_norm2",
+                 op_flags("layernorm", rows=decode_rows, hidden=hidden)),
+                (f"{prefix}_mlp_fc1",
+                 linear(decode_rows, hidden, intermediate, split_k)),
+                (f"{prefix}_mlp_gelu",
+                 op_flags("gelu", elements=decode_rows * intermediate)),
+                (f"{prefix}_mlp_fc2",
+                 linear(decode_rows, intermediate, hidden, split_k)),
+                (f"{prefix}_mlp_residual",
+                 op_flags("residual-add", elements=decode_rows * hidden)),
+            ]
 
     return ops

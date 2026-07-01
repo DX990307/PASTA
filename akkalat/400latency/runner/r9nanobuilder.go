@@ -668,6 +668,7 @@ func (b *R9NanoGPUBuilder) buildGMMU() {
 		WithLowModule(b.mmu.GetPortByName("Top")).
 		WithIsPrediction(true).
 		WithDemandPTEOnly(*ptwDemandPTEOnly).
+		WithLATPCFreeReturn8(latpcLATPEnabled()).
 		Build(fmt.Sprintf("%s.GMMU", b.gpuName))
 
 	b.gmmu = gmmu
