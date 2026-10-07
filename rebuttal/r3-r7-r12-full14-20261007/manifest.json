@@ -12330,7 +12330,7 @@
     }
   ],
   "launch_interval_seconds": 15,
-  "max_workers": 16,
+  "max_workers": 17,
   "poll_seconds": 10,
   "r7_scope": "Four unique controlled open-loop flows; no benchmark input exists, so no false FULL14 duplication.",
   "reserve_gib": 30,

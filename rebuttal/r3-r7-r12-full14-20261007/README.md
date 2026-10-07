@@ -7,7 +7,7 @@ This directory provides one global supervisor for both formal packages:
 - Total: 200 unique jobs.
 
 Jobs from the two packages are interleaved so both campaigns make progress.
-There is one global limit of 16 live simulations and one global 30-GiB
+There is one global limit of 17 live simulations and one global 30-GiB
 `MemAvailable` reserve. Do not also run either component package's `run.sh` on
 the same machine while this combined supervisor is active.
 
