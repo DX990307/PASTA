@@ -68,7 +68,9 @@ simulator/process kill. The updated script affects future launches only.
 | R10 | Reuse its own M1 results and compatible R4 no-PLT/R6 no-Assist/full-PASTA controls; it is independent of narrowed R2. |
 | R11 | Reuse existing operators only with matching shapes, repetitions, input/initial state and sampling. |
 | R12 | Share R3 controls when platform/input/model match; implement and execute only the new MPW points. |
-| R13 | Reuse existing validation/calibration records; test only uncovered behavior. |
+
+R13 was removed from the current rebuttal scope by user instruction on
+2026-10-07. No R13 experiment should be prepared or launched.
 
 Existing frozen R1/R5/R6/R8/R9/R10 manifests already have shared-reference
 routing; retain it rather than creating another run for each figure.
