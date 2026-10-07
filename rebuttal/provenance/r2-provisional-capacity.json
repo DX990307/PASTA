@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "status": "user_accepted_provisional_estimate",
+  "baseline_gmmu_entries_per_gpm": 20,
+  "reference_gmmu_entries_per_gpm": 16,
+  "gpms": 48,
+  "iommu_entries": 64,
+  "estimated_continuous_capacity": "20.943",
+  "rounding": "floor",
+  "basis": "Historical local bitmap-plus-PLT array budget with linear baseline MSHR core scaling",
+  "measured_N_eq": null,
+  "formal_equal_area_qualified": false,
+  "admitted": false,
+  "limits": [
+    "Provisional B20 comparison, not a complete measured equal-area capacity.",
+    "Complete PASTA costs and nonlinear SRAM/CAM organization effects are not covered.",
+    "This record does not dispatch GPU experiments or bypass the measured-area gate."
+  ]
+}

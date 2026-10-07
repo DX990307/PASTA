@@ -1,0 +1,1819 @@
+--- a/akita/mem/vm/addresstranslator/addresstranslator.go
++++ b/akita/mem/vm/addresstranslator/addresstranslator.go
+@@ -164,6 +164,12 @@
+ 		WithDeviceID(t.deviceID).
+ 		WithTaskID(taskID).
+ 		Build()
++	switch original := req.(type) {
++	case *mem.ReadReq:
++		transReq.LATPC, _ = original.Info.(vm.LATPCInfo)
++	case *mem.WriteReq:
++		transReq.LATPC, _ = original.Info.(vm.LATPCInfo)
++	}
+ 	err := t.translationPort.Send(transReq)
+ 	if err != nil {
+ 		return false
+--- a/akita/mem/vm/addresstranslator/latpc_flow_test.go
++++ b/akita/mem/vm/addresstranslator/latpc_flow_test.go
+@@ -0,0 +1,39 @@
++package addresstranslator
++
++import (
++	"github.com/sarchlab/akita/v3/mem/mem"
++	"github.com/sarchlab/akita/v3/mem/vm"
++	"github.com/sarchlab/akita/v3/sim"
++	"testing"
++)
++
++func TestLATPCMetadataThroughTranslator(t *testing.T) {
++	for _, write := range []bool{false, true} {
++		engine := sim.NewSerialEngine()
++		source := sim.NewLimitNumMsgPort(nil, 128, "AT.Source")
++		lower := sim.NewLimitNumMsgPort(nil, 128, "AT.TLB")
++		at := MakeBuilder().WithEngine(engine).WithTranslationProvider(lower).Build("AT")
++		link := sim.NewDirectConnection("AT.Link", engine, sim.GHz)
++		for _, p := range []sim.Port{source, lower, at.topPort, at.translationPort} {
++			link.PlugIn(p, 128)
++		}
++		info := vm.DetectLATPC([]uint64{8, 10})[1]
++		var request sim.Msg
++		if write {
++			request = mem.WriteReqBuilder{}.WithSrc(source).WithDst(at.topPort).WithAddress((10 << 12) + 32).WithPID(1).WithData([]byte{1}).WithInfo(info).Build()
++		} else {
++			request = mem.ReadReqBuilder{}.WithSrc(source).WithDst(at.topPort).WithAddress((10 << 12) + 32).WithPID(1).WithByteSize(4).WithInfo(info).Build()
++		}
++		if source.Send(request) != nil {
++			t.Fatal("send failed")
++		}
++		if err := engine.Run(); err != nil {
++			t.Fatal(err)
++		}
++		msg := lower.Retrieve(engine.CurrentTime())
++		req, ok := msg.(*vm.TranslationReq)
++		if !ok || req.LATPC != info || req.VAddr != 10<<12 {
++			t.Fatal("translator lost metadata or page alignment")
++		}
++	}
++}
+--- a/akita/mem/vm/gmmu/builder.go
++++ b/akita/mem/vm/gmmu/builder.go
+@@ -19,7 +19,10 @@
+ 	gpuIDList          []uint64
+ 	isPrediction       bool
+ 	demandPTEOnly      bool
++	latpcEnabled       bool
+ }
++
++func (b Builder) WithLATPC(enabled bool) Builder { b.latpcEnabled = enabled; return b }
+ 
+ // MakeBuilder creates a new builder
+ func MakeBuilder() Builder {
+@@ -111,6 +114,10 @@
+ 	gmmu.LowModule = b.lowModule
+ 	gmmu.isPrediction = b.isPrediction
+ 	gmmu.demandPTEOnly = b.demandPTEOnly
++	if b.latpcEnabled && !b.demandPTEOnly {
++		panic("LATPC requires ordinary demand-only walkers")
++	}
++	gmmu.latpcEnabled = b.latpcEnabled
+ 	gmmu.gpuIDList = b.gpuIDList
+ 	gmmu.log2PageSize = b.log2PageSize
+ }
+--- a/akita/mem/vm/gmmu/comp.go
++++ b/akita/mem/vm/gmmu/comp.go
+@@ -11,10 +11,11 @@
+ )
+ 
+ type transaction struct {
+-	req       *vm.TranslationReq
+-	page      vm.Page
+-	cycleLeft int
+-	migration *vm.PageMigrationReqToDriver
++	req        *vm.TranslationReq
++	page       vm.Page
++	cycleLeft  int
++	migration  *vm.PageMigrationReqToDriver
++	latpcBatch *vm.LATPCBatch
+ }
+ 
+ // gmmu is the default gmmu implementation. It is also an akita Component.
+@@ -49,6 +50,31 @@
+ 	gpuIDList     []uint64
+ 	isPrediction  bool
+ 	demandPTEOnly bool
++	latpcEnabled  bool
++	latpcMerged   uint64
++}
++
++func (g *GMMU) LATPCStats() (bool, uint64) { return g.latpcEnabled, g.latpcMerged }
++
++func (g *GMMU) mergeLATPC(now sim.VTimeInSec, req *vm.TranslationReq) bool {
++	if !g.latpcEnabled {
++		return false
++	}
++	for i := range g.walkingTranslations {
++		t := &g.walkingTranslations[i]
++		if !t.latpcBatch.Add(req) {
++			continue
++		}
++		t.cycleLeft++
++		g.latpcMerged++
++		if !req.IsPrefetch {
++			translationtrace.EndStage(req.ID, "local_gmmu_ptw_queue_wait", now)
++			translationtrace.AddStageCycles(req.ID, "local_gmmu_ptw_service", uint64(t.cycleLeft))
++		}
++		tracing.TraceReqReceive(req, g)
++		return true
++	}
++	return false
+ }
+ 
+ func (gmmu *GMMU) HasFreePTW() bool {
+@@ -86,6 +112,12 @@
+ }
+ 
+ func (gmmu *GMMU) parseFromTop(now sim.VTimeInSec) bool {
++	if gmmu.latpcEnabled {
++		if req, ok := gmmu.topPort.Peek().(*vm.TranslationReq); ok && gmmu.mergeLATPC(now, req) {
++			gmmu.topPort.Retrieve(now)
++			return true
++		}
++	}
+ 	if len(gmmu.walkingTranslations) >= gmmu.maxRequestsInFlight {
+ 		msg := gmmu.topPort.Peek()
+ 		if req, ok := msg.(*vm.TranslationReq); ok && req != nil && !req.IsPrefetch {
+@@ -120,6 +152,9 @@
+ 	translationInPipeline := transaction{
+ 		req:       req,
+ 		cycleLeft: gmmu.latency,
++	}
++	if gmmu.latpcEnabled {
++		translationInPipeline.latpcBatch = vm.NewLATPCBatch(req)
+ 	}
+ 
+ 	gmmu.walkingTranslations = append(gmmu.walkingTranslations, translationInPipeline)
+@@ -191,6 +226,7 @@
+ 	gmmu.remoteMemReqs[uint64(walking.VAddr)] = gmmu.walkingTranslations[walkingIndex]
+ 
+ 	req := vm.TranslationReqBuilder{}.
++		WithLATPC(walking.LATPC).
+ 		WithSendTime(now).
+ 		WithSrc(gmmu.bottomPort).
+ 		WithDst(gmmu.LowModule).
+@@ -248,10 +284,22 @@
+ ) bool {
+ 	// The existing 4096-message buffer must hold the complete (at most nine)
+ 	// response batch before retirement; partial enqueue would lose siblings.
+-	if !gmmu.topSender.CanSend(len(pages)) {
+-		return false
+-	}
+ 	walking := gmmu.walkingTranslations[walkingIndex]
++	var members []*vm.TranslationReq
++	var memberPages []vm.Page
++	if walking.latpcBatch != nil {
++		members = walking.latpcBatch.Members
++		for _, req := range members {
++			returned := gmmu.pageWalkResponses(req)
++			if len(returned) != 1 || returned[0].VAddr>>12 != req.LATPC.VPN {
++				panic("LATPC batch returned unexpected VPN")
++			}
++			memberPages = append(memberPages, returned[0])
++		}
++	}
++	if !gmmu.topSender.CanSend(len(pages) + len(members)) {
++		return false
++	}
+ 	for i, page := range pages {
+ 		taskID := walking.req.TaskID
+ 		if i > 0 {
+@@ -269,6 +317,12 @@
+ 			Build()
+ 		gmmu.topSender.Send(rsp)
+ 	}
++	for i, req := range members {
++		gmmu.topSender.Send(vm.TranslationRspBuilder{}.WithSendTime(now).WithSrc(gmmu.topPort).
++			WithDst(req.Src).WithRspTo(req.ID).WithPage(memberPages[i]).WithTaskID(req.TaskID).
++			WithOriginPort(req.OriginPort).WithPrefetch(req.IsPrefetch).Build())
++		tracing.TraceReqComplete(req, gmmu)
++	}
+ 	gmmu.toRemoveFromPTW = append(gmmu.toRemoveFromPTW, walkingIndex)
+ 	tracing.TraceReqComplete(walking.req, gmmu)
+ 	return true
+--- a/akita/mem/vm/gmmu/latpc_flow_test.go
++++ b/akita/mem/vm/gmmu/latpc_flow_test.go
+@@ -0,0 +1,53 @@
++package gmmu
++
++import (
++	"github.com/sarchlab/akita/v3/mem/vm"
++	"github.com/sarchlab/akita/v3/sim"
++	"testing"
++)
++
++func TestLATPCLocalBatchReplies(t *testing.T) {
++	for _, enabled := range []bool{false, true} {
++		engine := sim.NewSerialEngine()
++		source := sim.NewLimitNumMsgPort(nil, 128, "LATP.Source")
++		table := vm.NewPageTable(12)
++		g := MakeBuilder().WithEngine(engine).WithPageTable(table).WithDeviceID(1).
++			WithPageWalkingLatency(500).WithMaxNumReqInFlight(1).WithDemandPTEOnly(true).WithLATPC(enabled).Build("LATP.GMMU")
++		link := sim.NewDirectConnection("LATP.Link", engine, sim.GHz)
++		link.PlugIn(source, 128)
++		link.PlugIn(g.topPort, 128)
++		vpns := []uint64{8, 10, 12, 14, 16, 18, 20, 22}
++		requests := map[string]uint64{}
++		for _, info := range vm.DetectLATPC(vpns) {
++			table.Insert(vm.Page{Valid: true, PID: 1, VAddr: info.VPN << 12, PAddr: (info.VPN + 256) << 12, PageSize: 4096, DeviceID: 1})
++			r := vm.TranslationReqBuilder{}.WithSrc(source).WithDst(g.topPort).WithPID(1).WithVAddr(info.VPN << 12).WithDeviceID(1).Build()
++			if enabled {
++				r.LATPC = info
++			}
++			requests[r.ID] = r.VAddr
++			if source.Send(r) != nil {
++				t.Fatal("send failed")
++			}
++		}
++		if err := engine.Run(); err != nil {
++			t.Fatal(err)
++		}
++		for msg := source.Retrieve(engine.CurrentTime()); msg != nil; msg = source.Retrieve(engine.CurrentTime()) {
++			r := msg.(*vm.TranslationRsp)
++			va, ok := requests[r.RespondTo]
++			if !ok || va != r.Page.VAddr {
++				t.Fatal("wrong or duplicate response")
++			}
++			delete(requests, r.RespondTo)
++		}
++		if len(requests) != 0 || g.PTWInflight() != 0 {
++			t.Fatal("unfinished requests")
++		}
++		if enabled && (g.latpcMerged != 7 || engine.CurrentTime() > 600e-9) {
++			t.Fatal("batch not serviced")
++		}
++		if !enabled && engine.CurrentTime() < 4000e-9 {
++			t.Fatal("baseline timing changed")
++		}
++	}
++}
+--- a/akita/mem/vm/latpc.go
++++ b/akita/mem/vm/latpc.go
+@@ -0,0 +1,67 @@
++package vm
++
++// LATPCInfo describes one unique VPN in the lane-ordered instruction stream.
++type LATPCInfo struct {
++	Valid        bool
++	VPN, BaseVPN uint64
++	Stride       uint16
++	Index        uint8
++}
++
++func (i LATPCInfo) Matches(vpn uint64) bool {
++	return i.Valid && i.Index < 32 && i.Stride < 512 && i.VPN == vpn &&
++		i.BaseVPN>>9 == vpn>>9 && ((i.BaseVPN&511)+uint64(i.Stride)*uint64(i.Index))&511 == vpn&511
++}
++
++// DetectLATPC implements Fig.12; callers supply unique VPNs in lane order.
++// Native 64-lane waves are split at the 32-VPN mask limit, without sorting.
++func DetectLATPC(vpns []uint64) []LATPCInfo {
++	result := make([]LATPCInfo, len(vpns))
++	var base, prev uint64
++	var stride uint16
++	var index uint8
++	for n, vpn := range vpns {
++		delta := uint16((vpn - prev) & 511)
++		if n == 0 || n%32 == 0 || vpn>>9 != base>>9 ||
++			(stride != 0 && delta != stride) || delta == 0 || index == 31 {
++			base, stride, index = vpn, 0, 0
++		} else {
++			stride, index = delta, index+1
++		}
++		result[n] = LATPCInfo{Valid: true, VPN: vpn, BaseVPN: base, Stride: stride, Index: index}
++		prev = vpn
++	}
++	return result
++}
++
++// LATPCBatch keeps at most 32 distinct VPNs in one abstract walker slot.
++type LATPCBatch struct {
++	PID     PID
++	BaseVPN uint64
++	Stride  uint16
++	Mask    uint32
++	Members []*TranslationReq
++}
++
++func NewLATPCBatch(req *TranslationReq) *LATPCBatch {
++	i := req.LATPC
++	if !i.Matches(i.VPN) {
++		return nil
++	}
++	return &LATPCBatch{PID: req.PID, BaseVPN: i.BaseVPN, Stride: i.Stride, Mask: uint32(1) << i.Index}
++}
++
++func (b *LATPCBatch) Add(req *TranslationReq) bool {
++	if b == nil {
++		return false
++	}
++	i := req.LATPC
++	if !i.Matches(i.VPN) || b.PID != req.PID || b.BaseVPN != i.BaseVPN ||
++		(b.Stride != 0 && b.Stride != i.Stride) || b.Mask&(uint32(1)<<i.Index) != 0 {
++		return false
++	}
++	b.Stride = i.Stride
++	b.Mask |= uint32(1) << i.Index
++	b.Members = append(b.Members, req)
++	return true
++}
+--- a/akita/mem/vm/latpc_test.go
++++ b/akita/mem/vm/latpc_test.go
+@@ -0,0 +1,49 @@
++package vm
++
++import "testing"
++
++func TestLATPCPaperFigure12(t *testing.T) {
++	input := []uint64{0x1000, 0x1004, 0x1008, 0x100c, 0x1011, 0x1028, 0x1025, 0x1022}
++	stride := []uint16{0, 4, 4, 4, 0, 23, 0, 509}
++	index := []uint8{0, 1, 2, 3, 0, 1, 0, 1}
++	for n, i := range DetectLATPC(input) {
++		if !i.Matches(input[n]) || i.Stride != stride[n] || i.Index != index[n] {
++			t.Fatalf("Fig.12 mismatch at %d: %+v", n, i)
++		}
++	}
++}
++
++func TestLATPCBoundaryAndMaskLimit(t *testing.T) {
++	var input []uint64
++	for n := 0; n < 65; n++ {
++		input = append(input, uint64(n))
++	}
++	for n, i := range DetectLATPC(input) {
++		if !i.Matches(input[n]) || i.Index != uint8(n%32) {
++			t.Fatalf("mask limit: %+v", i)
++		}
++	}
++	boundary := DetectLATPC([]uint64{510, 511, 512, 513})
++	if boundary[2].Index != 0 || boundary[2].BaseVPN != 512 {
++		t.Fatal("group crossed 512-page boundary")
++	}
++}
++
++func TestLATPCBatchPIDStrideAndDuplicate(t *testing.T) {
++	infos := DetectLATPC([]uint64{8, 10, 12, 14})
++	req := func(n int) *TranslationReq {
++		return TranslationReqBuilder{}.WithPID(1).WithVAddr(infos[n].VPN << 12).WithLATPC(infos[n]).Build()
++	}
++	b := NewLATPCBatch(req(0))
++	if !b.Add(req(1)) || !b.Add(req(2)) || b.Add(req(2)) {
++		t.Fatal("incorrect group matching")
++	}
++	other := req(3)
++	other.PID = 2
++	if b.Add(other) {
++		t.Fatal("cross-PID batch")
++	}
++	if b.Mask != 7 || len(b.Members) != 2 {
++		t.Fatal("invalid mask or members")
++	}
++}
+--- a/akita/mem/vm/mmu/builder.go
++++ b/akita/mem/vm/mmu/builder.go
+@@ -21,11 +21,15 @@
+ 	topModule                sim.Port
+ 	walkCoalescingEnabled    bool
+ 	demandPTEOnly            bool
++	neighborAbstractPolicy   int
++	latpcEnabled             bool
+ 	// GMMUCacheTable           map[uint64]sim.Port
+ 	GMMUCacheTable *mem.MultiPageFinder
+ }
+ 
+ // MakeBuilder creates a new builder
++func (b Builder) WithLATPC(enabled bool) Builder { b.latpcEnabled = enabled; return b }
++
+ func MakeBuilder() Builder {
+ 	return Builder{
+ 		freq:                  1 * sim.GHz,
+@@ -63,6 +67,21 @@
+ 
+ func (b Builder) WithDemandPTEOnly(enabled bool) Builder {
+ 	b.demandPTEOnly = enabled
++	return b
++}
++
++// WithNeighborAbstract selects an aggregate-timer adaptation, not physical PTE reads.
++func (b Builder) WithNeighborAbstract(policy string) Builder {
++	switch policy {
++	case "off":
++		b.neighborAbstractPolicy = 0
++	case "full":
++		b.neighborAbstractPolicy = 1
++	case "full-nosched":
++		b.neighborAbstractPolicy = 2
++	default:
++		panic("unsupported abstract Neighbor policy")
++	}
+ 	return b
+ }
+ 
+@@ -145,6 +164,14 @@
+ 	mmu.log2PageSize = b.log2PageSize
+ 	mmu.walkCoalescingEnabled = b.walkCoalescingEnabled
+ 	mmu.demandPTEOnly = b.demandPTEOnly
++	if b.neighborAbstractPolicy != 0 && (!b.demandPTEOnly || b.walkCoalescingEnabled || b.fixedWalkLatency != 0) {
++		panic("abstract Neighbor requires demand-only native walkers without legacy coalescing")
++	}
++	mmu.neighborAbstractPolicy = b.neighborAbstractPolicy
++	if b.latpcEnabled && (!b.demandPTEOnly || b.walkCoalescingEnabled || b.fixedWalkLatency != 0 || b.neighborAbstractPolicy != 0) {
++		panic("LATPC requires demand-only native walkers without Neighbor or legacy coalescing")
++	}
++	mmu.latpcEnabled = b.latpcEnabled
+ }
+ 
+ func (b Builder) createPageTable(mmu *MMU) {
+--- a/akita/mem/vm/mmu/latpc.go
++++ b/akita/mem/vm/mmu/latpc.go
+@@ -0,0 +1,52 @@
++package mmu
++
++import (
++	"github.com/sarchlab/akita/v3/mem/vm"
++	"github.com/sarchlab/akita/v3/mem/vm/translationtrace"
++	"github.com/sarchlab/akita/v3/sim"
++	"github.com/sarchlab/akita/v3/tracing"
++)
++
++func (m *MMU) LATPCStats() (bool, uint64) { return m.latpcEnabled, m.latpcMerged }
++
++func (m *MMU) mergeLATPC(now sim.VTimeInSec, req *vm.TranslationReq) bool {
++	for n := range m.walkingTranslations {
++		t := &m.walkingTranslations[n]
++		pages, valid := m.neighborPages(req)
++		if !valid || len(pages) != 1 || pages[0].VAddr>>12 != req.LATPC.VPN || !t.latpcBatch.Add(req) {
++			continue
++		}
++		t.cycleLeft++
++		m.latpcMerged++
++		if !req.IsPrefetch {
++			translationtrace.EndStage(req.ID, "shared_mmu_pwqueue_wait", now)
++			translationtrace.AddStageCycles(req.ID, "shared_mmu_ptw_service", uint64(t.cycleLeft))
++		}
++		tracing.TraceReqReceive(req, m)
++		return true
++	}
++	return false
++}
++
++func (m *MMU) canSendLATPCMembers(t transaction) bool {
++	if t.latpcBatch == nil {
++		return true
++	}
++	return m.topSender.CanSend(1 + len(t.latpcBatch.Members))
++}
++
++func (m *MMU) sendLATPCMembers(now sim.VTimeInSec, t transaction) {
++	if t.latpcBatch == nil {
++		return
++	}
++	for _, req := range t.latpcBatch.Members {
++		pages, valid := m.neighborPages(req)
++		if !valid || len(pages) != 1 {
++			panic("LATPC batch mapping changed before completion")
++		}
++		m.topSender.Send(vm.TranslationRspBuilder{}.WithSendTime(now).WithSrc(m.topPort).
++			WithDst(req.Src).WithRspTo(req.ID).WithPage(pages[0]).WithTaskID(req.TaskID).
++			WithOriginPort(req.OriginPort).WithPrefetch(req.IsPrefetch).Build())
++		tracing.TraceReqComplete(req, m)
++	}
++}
+--- a/akita/mem/vm/mmu/mmu.go
++++ b/akita/mem/vm/mmu/mmu.go
+@@ -12,14 +12,19 @@
+ )
+ 
+ type transaction struct {
+-	req       *vm.TranslationReq
+-	page      vm.Page
+-	cycleLeft int
+-	migration *vm.PageMigrationReqToDriver
++	req                   *vm.TranslationReq
++	page                  vm.Page
++	cycleLeft             int
++	migration             *vm.PageMigrationReqToDriver
++	neighborUpperReturned bool
++	latpcBatch            *vm.LATPCBatch
+ }
+ 
+ type PWqueue struct {
+-	req *vm.TranslationReq
++	req                  *vm.TranslationReq
++	neighborPartialLevel int
++	neighborHoldStart    uint64
++	neighborHeld         bool
+ }
+ 
+ // MMU is the default mmu implementation. It is also an akita Component.
+@@ -53,6 +58,10 @@
+ 	demandPTEOnly           bool
+ 	lastLevelCoalescedCount int
+ 	twoLevelCoalescedCount  int
++	neighborAbstractPolicy  int
++	neighborAbstractStats   NeighborAbstractStats
++	latpcEnabled            bool
++	latpcMerged             uint64
+ 
+ 	// PWqueue        []sim.Msg
+ 	PWqueue        []PWqueue
+@@ -101,6 +110,11 @@
+ func (mmu *MMU) walkPageTable(now sim.VTimeInSec) bool {
+ 	madeProgress := false
+ 	for i := 0; i < len(mmu.walkingTranslations); i++ {
++		if mmu.neighborAbstractPolicy != 0 && !mmu.walkingTranslations[i].neighborUpperReturned &&
++			mmu.walkingTranslations[i].cycleLeft <= 100 {
++			mmu.walkingTranslations[i].neighborUpperReturned = true
++			mmu.advanceNeighborPending(mmu.walkingTranslations[i].req)
++		}
+ 		if mmu.walkingTranslations[i].cycleLeft > 0 {
+ 			mmu.walkingTranslations[i].cycleLeft--
+ 			madeProgress = true
+@@ -156,6 +170,9 @@
+ 	}
+ 
+ 	madeProgress := false
++	if !mmu.canSendLATPCMembers(walking) {
++		return false
++	}
+ 
+ 	if !mmu.topSender.CanSend(1) {
+ 		return false
+@@ -184,6 +201,8 @@
+ 	}
+ 
+ 	mmu.toRemoveFromPTW = append(mmu.toRemoveFromPTW, walkingIndex)
++	mmu.sendLATPCMembers(now, walking)
++	mmu.completeNeighborPending(now, walking.req)
+ 
+ 	tracing.TraceReqComplete(walking.req, mmu)
+ 
+@@ -195,11 +214,16 @@
+ 	walkingIndex int,
+ ) bool {
+ 	walking := mmu.walkingTranslations[walkingIndex]
++	if !mmu.canSendLATPCMembers(walking) {
++		return false
++	}
+ 	if !mmu.sendPTCLResponses(now, walking.req) {
+ 		return false
+ 	}
+ 
+ 	mmu.toRemoveFromPTW = append(mmu.toRemoveFromPTW, walkingIndex)
++	mmu.sendLATPCMembers(now, walking)
++	mmu.completeNeighborPending(now, walking.req)
+ 	tracing.TraceReqComplete(walking.req, mmu)
+ 
+ 	return true
+@@ -436,10 +460,14 @@
+ 
+ func (mmu *MMU) processTranslationReqs(now sim.VTimeInSec) bool {
+ 	madeProgress := false
++	for mmu.latpcEnabled && len(mmu.PWqueue) > 0 && mmu.mergeLATPC(now, mmu.PWqueue[0].req) {
++		mmu.PWqueue = mmu.PWqueue[1:]
++		madeProgress = true
++	}
+ 
+ 	if len(mmu.walkingTranslations) >= mmu.maxRequestsInFlight {
+ 		// fmt.Printf("inflight translations %d\n", len(mmu.walkingTranslations))
+-		return false
++		return madeProgress
+ 	}
+ 
+ 	// fmt.Printf("inflight translations %d\n", len(mmu.walkingTranslations))
+@@ -448,9 +476,18 @@
+ 		if len(mmu.PWqueue) == 0 {
+ 			break
+ 		}
+-
+-		pw := mmu.PWqueue[0]
+-		mmu.PWqueue = mmu.PWqueue[1:]
++		if mmu.latpcEnabled && mmu.mergeLATPC(now, mmu.PWqueue[0].req) {
++			mmu.PWqueue = mmu.PWqueue[1:]
++			madeProgress = true
++			continue
++		}
++
++		next := mmu.selectNeighborPending(now)
++		if next < 0 {
++			break
++		}
++		pw := mmu.PWqueue[next]
++		mmu.PWqueue = append(mmu.PWqueue[:next], mmu.PWqueue[next+1:]...)
+ 
+ 		if pw.req == nil {
+ 			break
+@@ -465,7 +502,15 @@
+ 		// 	log.Panicf("MMU canot handle request of type %s", reflect.TypeOf(req))
+ 		// }
+ 
+-		mmu.startWalking(pw.req, mmu.coalescedUpperLatency(pw.req), now)
++		upperLatency := mmu.coalescedUpperLatency(pw.req)
++		if mmu.neighborAbstractPolicy != 0 && pw.neighborPartialLevel >= 2 {
++			remaining := uint64(pw.neighborPartialLevel-2) * 100
++			if remaining < upperLatency {
++				upperLatency = remaining
++			}
++			mmu.neighborAbstractStats.LevelsSkipped += uint64(6 - pw.neighborPartialLevel)
++		}
++		mmu.startWalking(pw.req, upperLatency, now)
+ 		madeProgress = true
+ 
+ 		if len(mmu.walkingTranslations) >= mmu.maxRequestsInFlight {
+@@ -489,6 +534,9 @@
+ 	translationInPipeline := transaction{
+ 		req:       req,
+ 		cycleLeft: int(l),
++	}
++	if mmu.latpcEnabled {
++		translationInPipeline.latpcBatch = vm.NewLATPCBatch(req)
+ 	}
+ 
+ 	mmu.walkingTranslations = append(mmu.walkingTranslations, translationInPipeline)
+--- a/akita/mem/vm/mmu/neighbor_abstract.go
++++ b/akita/mem/vm/mmu/neighbor_abstract.go
+@@ -0,0 +1,155 @@
++package mmu
++
++import (
++	"math"
++
++	"github.com/sarchlab/akita/v3/mem/vm"
++	"github.com/sarchlab/akita/v3/mem/vm/translationtrace"
++	"github.com/sarchlab/akita/v3/sim"
++	"github.com/sarchlab/akita/v3/tracing"
++)
++
++// No physical memory traffic is inferred from these aggregate-timer counters.
++type NeighborAbstractStats struct {
++	LeafReturns, PendingCompletions, DemandPages, LevelsSkipped uint64
++	PartialEvents                                               [6]uint64
++	SchedulerHeldTicks, TimeoutStarts                           uint64
++}
++
++func (m *MMU) NeighborAbstractStats() (int, NeighborAbstractStats) {
++	return m.neighborAbstractPolicy, m.neighborAbstractStats
++}
++
++func (m *MMU) neighborRegion(req *vm.TranslationReq, level int) uint64 {
++	return (req.VAddr >> m.log2PageSize) >> uint(3+9*(level-1))
++}
++
++func (m *MMU) sameNeighbor(a, b *vm.TranslationReq, level int) bool {
++	return a != nil && b != nil && a.PID == b.PID && m.neighborRegion(a, level) == m.neighborRegion(b, level)
++}
++
++// One aggregate upper-path return grants prefix credit to queued requests.
++// This deliberately does not claim physical per-level PTE-return timing.
++func (m *MMU) advanceNeighborPending(active *vm.TranslationReq) {
++	for i := range m.PWqueue {
++		p := &m.PWqueue[i]
++		for level := 2; level <= 5; level++ {
++			if !m.sameNeighbor(p.req, active, level) {
++				continue
++			}
++			if p.neighborPartialLevel == 0 || level < p.neighborPartialLevel {
++				p.neighborPartialLevel = level
++				m.neighborAbstractStats.PartialEvents[level]++
++			}
++			break
++		}
++	}
++}
++
++func (m *MMU) selectNeighborPending(now sim.VTimeInSec) int {
++	if m.neighborAbstractPolicy != 1 {
++		return 0
++	}
++	cycle := uint64(math.Round(float64(now) * float64(m.Freq)))
++	first, timeout := -1, -1
++	for i := range m.PWqueue {
++		p := &m.PWqueue[i]
++		coalescible := false
++		for _, active := range m.walkingTranslations {
++			level := 5
++			if active.neighborUpperReturned {
++				level = 1
++			}
++			if m.sameNeighbor(p.req, active.req, level) {
++				coalescible = true
++				break
++			}
++		}
++		if !coalescible {
++			p.neighborHeld = false
++			if first < 0 {
++				first = i
++			}
++		} else {
++			if !p.neighborHeld {
++				p.neighborHeld = true
++				p.neighborHoldStart = cycle
++			}
++			if cycle-p.neighborHoldStart >= 100000 && timeout < 0 {
++				timeout = i
++			}
++		}
++	}
++	if first >= 0 {
++		return first
++	}
++	if timeout >= 0 {
++		m.neighborAbstractStats.TimeoutStarts++
++		return timeout
++	}
++	m.neighborAbstractStats.SchedulerHeldTicks++
++	return -1
++}
++
++func (m *MMU) neighborPages(req *vm.TranslationReq) ([]vm.Page, bool) {
++	var pages []vm.Page
++	if !m.hasBitmap(req.BitMap) {
++		p, ok := m.pageTable.Find(req.PID, req.VAddr)
++		if !ok {
++			return nil, false
++		}
++		pages = append(pages, p)
++	} else {
++		base := m.getBaseVAddr(req.VAddr)
++		for bit, demanded := range req.BitMap {
++			if !demanded {
++				continue
++			}
++			p, ok := m.pageTable.Find(req.PID, base+(uint64(bit)<<m.log2PageSize))
++			if !ok {
++				return nil, false
++			}
++			pages = append(pages, p)
++		}
++	}
++	for _, p := range pages {
++		if !p.Valid || p.PageSize != uint64(1)<<m.log2PageSize || p.IsMigrating ||
++			m.pageNeedMigrate(transaction{req: req, page: p}) {
++			return nil, false
++		}
++	}
++	return pages, len(pages) > 0
++}
++
++func (m *MMU) completeNeighborPending(now sim.VTimeInSec, active *vm.TranslationReq) {
++	if m.neighborAbstractPolicy == 0 {
++		return
++	}
++	m.neighborAbstractStats.LeafReturns++
++	kept := m.PWqueue[:0]
++	for _, pending := range m.PWqueue {
++		req := pending.req
++		if !m.sameNeighbor(req, active, 1) {
++			kept = append(kept, pending)
++			continue
++		}
++		pages, valid := m.neighborPages(req)
++		if !valid || !m.topSender.CanSend(len(pages)) {
++			kept = append(kept, pending)
++			continue
++		}
++		for _, page := range pages {
++			m.topSender.Send(vm.TranslationRspBuilder{}.WithSendTime(now).WithSrc(m.topPort).
++				WithDst(req.Src).WithRspTo(req.ID).WithPage(page).WithTaskID(req.TaskID).
++				WithOriginPort(req.OriginPort).WithPrefetch(req.IsPrefetch).Build())
++		}
++		if !req.IsPrefetch {
++			translationtrace.EndStage(req.ID, "shared_mmu_pwqueue_wait", now)
++			translationtrace.AddStageCycles(req.ID, "shared_mmu_ptw_service", 0)
++		}
++		tracing.TraceReqComplete(req, m)
++		m.neighborAbstractStats.PendingCompletions++
++		m.neighborAbstractStats.DemandPages += uint64(len(pages))
++	}
++	m.PWqueue = kept
++}
+--- a/akita/mem/vm/mmu/simple_sota_test.go
++++ b/akita/mem/vm/mmu/simple_sota_test.go
+@@ -0,0 +1,88 @@
++package mmu
++
++import (
++	"github.com/sarchlab/akita/v3/mem/vm"
++	"github.com/sarchlab/akita/v3/sim"
++	"testing"
++)
++
++func TestSimpleSOTADemandReplies(t *testing.T) {
++	for _, mode := range []string{"baseline", "neighbor", "latpc"} {
++		t.Run(mode, func(t *testing.T) {
++			engine := sim.NewSerialEngine()
++			source := sim.NewLimitNumMsgPort(nil, 128, "SOTA.Source")
++			table := vm.NewPageTable(12)
++			b := MakeBuilder().WithEngine(engine).WithPageTable(table).WithMaxNumReqInFlight(1).WithWalkCoalescing(false).WithDemandPTEOnly(true)
++			if mode == "neighbor" {
++				b = b.WithNeighborAbstract("full")
++			}
++			if mode == "latpc" {
++				b = b.WithLATPC(true)
++			}
++			m := b.Build("SOTA.MMU")
++			link := sim.NewDirectConnection("SOTA.Link", engine, sim.GHz)
++			link.PlugIn(source, 128)
++			link.PlugIn(m.topPort, 128)
++			var vpns []uint64
++			for n := 0; n < 8; n++ {
++				vpns = append(vpns, uint64(8+n))
++				table.Insert(vm.Page{Valid: true, PID: 1, VAddr: uint64(8+n) << 12, PAddr: uint64(256+n) << 12, PageSize: 4096, DeviceID: 1})
++			}
++			infos := vm.DetectLATPC(vpns)
++			requests := map[string]uint64{}
++			for n, info := range infos {
++				var mask [8]bool
++				mask[n] = true
++				r := vm.TranslationReqBuilder{}.WithSrc(source).WithDst(m.topPort).WithPID(1).WithDeviceID(1).
++					WithVAddr(8 << 12).WithBitMap(mask).WithTransLatency(400).WithOriginPort(source).WithTaskID("warp").Build()
++				if mode == "latpc" {
++					r.LATPC = info
++				}
++				requests[r.ID] = info.VPN << 12
++				if source.Send(r) != nil {
++					t.Fatal("send failed")
++				}
++			}
++			if err := engine.Run(); err != nil {
++				t.Fatal(err)
++			}
++			for msg := source.Retrieve(engine.CurrentTime()); msg != nil; msg = source.Retrieve(engine.CurrentTime()) {
++				r := msg.(*vm.TranslationRsp)
++				address, ok := requests[r.RespondTo]
++				if !ok || r.Page.VAddr != address {
++					t.Fatal("wrong or duplicate response")
++				}
++				delete(requests, r.RespondTo)
++			}
++			if len(requests) != 0 || len(m.PWqueue) != 0 || m.PTWInflight() != 0 {
++				t.Fatal("unfinished requests")
++			}
++			if mode == "neighbor" && m.neighborAbstractStats.PendingCompletions != 7 {
++				t.Fatalf("leaf coalescing did not serve bitmap requests: %+v", m.neighborAbstractStats)
++			}
++			if mode == "latpc" && m.latpcMerged != 7 {
++				t.Fatal("LATP batching did not merge")
++			}
++			if mode == "baseline" && engine.CurrentTime() < 4000e-9 {
++				t.Fatal("baseline countdown changed")
++			}
++			if mode != "baseline" && engine.CurrentTime() > 600e-9 {
++				t.Fatal("coalescing failed to save walks")
++			}
++		})
++	}
++}
++
++func TestNeighborPIDAndUnmappedCandidate(t *testing.T) {
++	m := MakeBuilder().WithEngine(sim.NewSerialEngine()).WithWalkCoalescing(false).WithDemandPTEOnly(true).WithNeighborAbstract("full").Build("Guard.MMU")
++	a := vm.TranslationReqBuilder{}.WithPID(1).WithVAddr(4096).Build()
++	b := vm.TranslationReqBuilder{}.WithPID(2).WithVAddr(8192).Build()
++	if m.sameNeighbor(a, b, 1) {
++		t.Fatal("cross-PID match")
++	}
++	m.PWqueue = []PWqueue{{req: vm.TranslationReqBuilder{}.WithPID(1).WithVAddr(8192).Build()}}
++	m.completeNeighborPending(0, a)
++	if len(m.PWqueue) != 1 || m.neighborAbstractStats.PendingCompletions != 0 {
++		t.Fatal("unmapped request falsely completed")
++	}
++}
+--- a/akita/mem/vm/mmuCache/tlb.go
++++ b/akita/mem/vm/mmuCache/tlb.go
+@@ -131,6 +131,7 @@
+ 	}
+ 
+ 	reqToBottom := vm.TranslationReqBuilder{}.
++		WithLATPC(req.LATPC).
+ 		WithSendTime(now).
+ 		WithSrc(cache.bottomPort).
+ 		WithDst(cache.LowModule).
+--- a/akita/mem/vm/mmuTLB/tlb.go
++++ b/akita/mem/vm/mmuTLB/tlb.go
+@@ -881,6 +881,7 @@
+ 
+ 	baseVAddr := tlb.getBaseVaddr(req.VAddr)
+ 	reqToBottom := vm.TranslationReqBuilder{}.
++		WithLATPC(req.LATPC).
+ 		WithSendTime(now).
+ 		WithSrc(tlb.bottomPort).
+ 		WithDst(tlb.LowModule).
+--- a/akita/mem/vm/protocol.go
++++ b/akita/mem/vm/protocol.go
+@@ -23,6 +23,7 @@
+ 	BitMap        [8]bool
+ 	// TracePath is observation-only metadata, not a serialized field or routing input.
+ 	TracePath string
++	LATPC     LATPCInfo
+ }
+ 
+ // Meta returns the meta data associated with the message.
+@@ -45,6 +46,12 @@
+ 	transLatency  uint64
+ 	prefetchNums  int
+ 	isPrefetch    bool
++	latpc         LATPCInfo
++}
++
++func (b TranslationReqBuilder) WithLATPC(info LATPCInfo) TranslationReqBuilder {
++	b.latpc = info
++	return b
+ }
+ 
+ func (b TranslationReqBuilder) WithTransLatency(
+@@ -153,6 +160,7 @@
+ 	r.PrefetchNums = b.prefetchNums
+ 	r.IsPrefetch = b.isPrefetch
+ 	r.BitMap = b.bitMap
++	r.LATPC = b.latpc
+ 	r.TransLatency = b.transLatency
+ 	return r
+ }
+--- a/akita/mem/vm/tlb/builder.go
++++ b/akita/mem/vm/tlb/builder.go
+@@ -15,7 +15,10 @@
+ 	isPrediction    bool
+ 	bloomFilterSize int
+ 	DeviceID        int
++	latpcEnabled    bool
+ }
++
++func (b Builder) WithLATPC(enabled bool) Builder { b.latpcEnabled = enabled; return b }
+ 
+ // MakeBuilder returns a Builder
+ func MakeBuilder() Builder {
+@@ -117,6 +120,8 @@
+ 	}
+ 
+ 	tlb.mshr = newMSHR(b.numMSHREntry)
++	tlb.latpcEnabled, tlb.latpcCapacity = b.latpcEnabled, b.numMSHREntry
++	tlb.latpcPending = make(map[string]*latpcSlot)
+ 
+ 	b.createPorts(name, tlb)
+ 
+--- a/akita/mem/vm/tlb/latpc.go
++++ b/akita/mem/vm/tlb/latpc.go
+@@ -0,0 +1,136 @@
++package tlb
++
++import (
++	"github.com/sarchlab/akita/v3/mem/vm"
++	"github.com/sarchlab/akita/v3/sim"
++	"github.com/sarchlab/akita/v3/tracing"
++)
++
++type latpcEntry struct {
++	pid    vm.PID
++	base   uint64
++	stride uint16
++	mask   uint32
++	slots  [32]*latpcSlot
++}
++
++type latpcSlot struct {
++	entry    *latpcEntry
++	index    uint8
++	down     *vm.TranslationReq
++	requests []*vm.TranslationReq
++}
++
++type LATPCStats struct {
++	Allocated, CompressedMisses, HitUnderMiss, FullObservations, PeakEntries uint64
++}
++
++func (t *TLB) LATPCStats() (bool, int, LATPCStats) {
++	return t.latpcEnabled, t.latpcCapacity, t.latpcStats
++}
++
++func (t *TLB) findLATPC(req *vm.TranslationReq) *latpcEntry {
++	i := req.LATPC
++	for _, e := range t.latpcEntries {
++		if e.pid == req.PID && e.base == i.BaseVPN && (e.stride == i.Stride || e.stride == 0) {
++			return e
++		}
++	}
++	return nil
++}
++
++func (t *TLB) lookupLATPC(now sim.VTimeInSec, req *vm.TranslationReq) bool {
++	if !req.LATPC.Matches(req.VAddr >> 12) {
++		panic("LATPC metadata does not describe the demanded VPN")
++	}
++	// Two pipeline cycles for detector and compressed tagging, without a DRAM model.
++	if t.latpcDelayID != req.ID {
++		t.latpcDelayID, t.latpcReadyAt = req.ID, t.Freq.NCyclesLater(2, now)
++		return true
++	}
++	if now+1e-15 < t.latpcReadyAt {
++		return true
++	}
++	e := t.findLATPC(req)
++	index := req.LATPC.Index
++	if e != nil && e.mask&(uint32(1)<<index) != 0 {
++		e.slots[index].requests = append(e.slots[index].requests, req)
++		t.topPort.Retrieve(now)
++		t.latpcDelayID = ""
++		t.latpcStats.HitUnderMiss++
++		tracing.TraceReqReceive(req, t)
++		tracing.AddTaskStep(tracing.MsgIDAtReceiver(req, t), t, "mshr-hit")
++		return true
++	}
++	setID := t.vAddrToSetID(req.VAddr)
++	way, page, hit := t.Sets[setID].Lookup(req.PID, req.VAddr)
++	if hit && page.Valid {
++		ok := t.handleTranslationHit(now, req, setID, way, page)
++		if ok {
++			t.latpcDelayID = ""
++		}
++		return ok
++	}
++	if e == nil && len(t.latpcEntries)+len(t.mshr.AllEntries()) >= t.latpcCapacity {
++		t.latpcStats.FullObservations++
++		return false
++	}
++	down := vm.TranslationReqBuilder{}.WithSendTime(now).WithSrc(t.bottomPort).WithDst(t.LowModule).
++		WithPID(req.PID).WithVAddr(req.VAddr).WithLATPC(req.LATPC).WithDeviceID(uint64(t.DeviceID)).
++		WithTaskID(req.TaskID).WithOriginPort(t.bottomPort).Build()
++	if t.bottomPort.Send(down) != nil {
++		return false
++	}
++	if e == nil {
++		e = &latpcEntry{pid: req.PID, base: req.LATPC.BaseVPN, stride: req.LATPC.Stride}
++		t.latpcEntries = append(t.latpcEntries, e)
++		t.latpcStats.Allocated++
++		if uint64(len(t.latpcEntries)) > t.latpcStats.PeakEntries {
++			t.latpcStats.PeakEntries = uint64(len(t.latpcEntries))
++		}
++	} else {
++		t.latpcStats.CompressedMisses++
++	}
++	e.stride = req.LATPC.Stride
++	slot := &latpcSlot{entry: e, index: index, down: down, requests: []*vm.TranslationReq{req}}
++	e.mask |= uint32(1) << index
++	e.slots[index] = slot
++	t.latpcPending[down.ID] = slot
++	t.topPort.Retrieve(now)
++	t.latpcDelayID = ""
++	tracing.TraceReqReceive(req, t)
++	tracing.AddTaskStep(tracing.MsgIDAtReceiver(req, t), t, "miss")
++	tracing.TraceReqInitiate(down, t, tracing.MsgIDAtReceiver(req, t))
++	return true
++}
++
++func (t *TLB) returnLATPC(now sim.VTimeInSec, rsp *vm.TranslationRsp, slot *latpcSlot) bool {
++	page := rsp.Page
++	if !page.Valid || page.PID != slot.down.PID || page.VAddr != slot.down.VAddr {
++		panic("LATPC response context mismatch")
++	}
++	set := t.Sets[t.vAddrToSetID(page.VAddr)]
++	way, ok := set.Evict()
++	if !ok {
++		return false
++	}
++	set.Update(way, page)
++	set.Visit(way)
++	t.respondingMSHREntry = &mshrEntry{pid: page.PID, vAddr: page.VAddr, page: page,
++		Requests: slot.requests, reqToBottom: slot.down}
++	e := slot.entry
++	e.mask &^= uint32(1) << slot.index
++	e.slots[slot.index] = nil
++	delete(t.latpcPending, slot.down.ID)
++	if e.mask == 0 {
++		for n, existing := range t.latpcEntries {
++			if existing == e {
++				t.latpcEntries = append(t.latpcEntries[:n], t.latpcEntries[n+1:]...)
++				break
++			}
++		}
++	}
++	t.bottomPort.Retrieve(now)
++	tracing.TraceReqFinalize(slot.down, t)
++	return true
++}
+--- a/akita/mem/vm/tlb/latpc_flow_test.go
++++ b/akita/mem/vm/tlb/latpc_flow_test.go
+@@ -0,0 +1,81 @@
++package tlb
++
++import (
++	"fmt"
++	"github.com/sarchlab/akita/v3/mem/vm"
++	"github.com/sarchlab/akita/v3/sim"
++	"testing"
++)
++
++func TestLATPCCompressedForwardAndReturn(t *testing.T) {
++	for _, capacity := range []int{1, 128} {
++		t.Run(fmt.Sprint(capacity), func(t *testing.T) { testLATPCFlow(t, capacity) })
++	}
++}
++
++func testLATPCFlow(t *testing.T, replyCapacity int) {
++	engine := sim.NewSerialEngine()
++	lower := sim.NewLimitNumMsgPort(nil, 128, "LATPC.Lower")
++	source := sim.NewLimitNumMsgPort(nil, replyCapacity, "LATPC.Source")
++	l1 := MakeBuilder().WithEngine(engine).WithDeviceID(1).WithNumMSHREntry(1).WithLATPC(true).WithLowModule(lower).Build("LATPC.L1")
++	link := sim.NewDirectConnection("LATPC.Link", engine, sim.GHz)
++	for _, p := range []sim.Port{source, lower, l1.topPort, l1.bottomPort} {
++		link.PlugIn(p, 128)
++	}
++	infos := vm.DetectLATPC([]uint64{8, 10, 12, 14, 16, 18, 20, 22})
++	requests := map[string]uint64{}
++	// One duplicate waiter and a distinct group beyond the one-entry limit.
++	inputs := append(append([]vm.LATPCInfo{}, infos...), infos[1], vm.DetectLATPC([]uint64{515})[0])
++	for _, info := range inputs {
++		r := vm.TranslationReqBuilder{}.WithSrc(source).WithDst(l1.topPort).WithPID(1).WithDeviceID(1).
++			WithVAddr(info.VPN << 12).WithLATPC(info).WithOriginPort(source).WithTaskID("warp").Build()
++		requests[r.ID] = r.VAddr
++		if source.Send(r) != nil {
++			t.Fatal("send failed")
++		}
++	}
++	if err := engine.Run(); err != nil {
++		t.Fatal(err)
++	}
++	if len(l1.latpcEntries) != 1 || l1.latpcEntries[0].mask != 255 || l1.latpcStats.CompressedMisses != 7 ||
++		l1.latpcStats.FullObservations == 0 || l1.latpcStats.HitUnderMiss != 1 {
++		t.Fatalf("not compressed: %+v", l1.latpcStats)
++	}
++	count := 0
++	for phase := 0; phase < 64 && len(requests) != 0; phase++ {
++		for msg := lower.Retrieve(engine.CurrentTime()); msg != nil; msg = lower.Retrieve(engine.CurrentTime()) {
++			r := msg.(*vm.TranslationReq)
++			if !r.LATPC.Matches(r.VAddr >> 12) {
++				t.Fatal("metadata lost")
++			}
++			page := vm.Page{Valid: true, PID: 1, VAddr: r.VAddr, PAddr: 0x100000 + r.VAddr, PageSize: 4096, DeviceID: 1}
++			if lower.Send(vm.TranslationRspBuilder{}.WithSendTime(sim.GHz.NextTick(engine.CurrentTime())).WithSrc(lower).WithDst(l1.bottomPort).WithRspTo(r.ID).WithPage(page).Build()) != nil {
++				t.Fatal("reply send failed")
++			}
++			count++
++		}
++		if phase == 0 && count != 8 {
++			t.Fatalf("L2 must receive all 8 VPN requests, received %d", count)
++		}
++		if err := engine.Run(); err != nil {
++			t.Fatal(err)
++		}
++		// External consumers resume after the last processed event, just as
++		// a ticking requester would, so a blocked connection is reawakened.
++		resume := sim.GHz.NextTick(engine.CurrentTime())
++		for msg := source.Retrieve(resume); msg != nil; msg = source.Retrieve(resume) {
++			r := msg.(*vm.TranslationRsp)
++			address, ok := requests[r.RespondTo]
++			if !ok || r.Page.VAddr != address {
++				t.Fatal("duplicate or wrong requester reply")
++			}
++			delete(requests, r.RespondTo)
++		}
++	}
++	if count != 9 || l1.latpcStats.PeakEntries != 1 {
++		t.Fatal("distinct-group capacity or ordinary VPN forwarding violated")
++	}
++	if len(requests) != 0 || len(l1.latpcEntries) != 0 || len(l1.latpcPending) != 0 {
++		t.Fatalf("lost reply or unreleased entry: requests=%d entries=%d pending=%d responding=%v bottom=%v time=%g", len(requests), len(l1.latpcEntries), len(l1.latpcPending), l1.respondingMSHREntry, l1.bottomPort.Peek(), engine.CurrentTime())
++	}
++}
+--- a/akita/mem/vm/tlb/tlb.go
++++ b/akita/mem/vm/tlb/tlb.go
+@@ -36,7 +36,14 @@
+ 	isPrediction bool
+ 	BloomFilter  *BloomFilter
+ 
+-	isPaused bool
++	isPaused      bool
++	latpcEnabled  bool
++	latpcCapacity int
++	latpcEntries  []*latpcEntry
++	latpcPending  map[string]*latpcSlot
++	latpcDelayID  string
++	latpcReadyAt  sim.VTimeInSec
++	latpcStats    LATPCStats
+ }
+ 
+ // Reset sets all the entries int he TLB to be invalid
+@@ -118,6 +125,9 @@
+ 	}
+ 
+ 	req := msg.(*vm.TranslationReq)
++	if tlb.latpcEnabled && req.LATPC.Valid {
++		return tlb.lookupLATPC(now, req)
++	}
+ 
+ 	// if tlb.DeviceID == 1 {
+ 	// 	vpn := req.VAddr >> 12
+@@ -164,7 +174,7 @@
+ 	now sim.VTimeInSec,
+ 	req *vm.TranslationReq,
+ ) bool {
+-	if tlb.mshr.IsFull() {
++	if tlb.mshr.IsFull() || (tlb.latpcEnabled && len(tlb.mshr.AllEntries())+len(tlb.latpcEntries) >= tlb.latpcCapacity) {
+ 		return false
+ 	}
+ 
+@@ -228,6 +238,7 @@
+ 		WithSrc(tlb.bottomPort).
+ 		WithDst(tlb.LowModule).
+ 		WithPID(req.PID).
++		WithLATPC(req.LATPC).
+ 		WithVAddr(req.VAddr).
+ 		WithDeviceID(uint64(tlb.DeviceID)).
+ 		WithTaskID(req.TaskID).
+@@ -260,6 +271,11 @@
+ 	}
+ 
+ 	rsp := item.(*vm.TranslationRsp)
++	if tlb.latpcEnabled {
++		if slot := tlb.latpcPending[rsp.RespondTo]; slot != nil {
++			return tlb.returnLATPC(now, rsp, slot)
++		}
++	}
+ 	page := rsp.Page
+ 
+ 	// if strings.Contains(tlb.bottomPort.Name(), "L1TLB") {
+@@ -345,6 +361,9 @@
+ 	}
+ 
+ 	tlb.mshr.Reset()
++	tlb.latpcEntries = nil
++	clear(tlb.latpcPending)
++	tlb.latpcDelayID = ""
+ 	tlb.isPaused = true
+ 	return true
+ }
+--- a/akita/mem/vm/tlb_gmmu/r2_finite_capacity_test.go
++++ b/akita/mem/vm/tlb_gmmu/r2_finite_capacity_test.go
+@@ -0,0 +1,41 @@
++package tlb_gmmu
++
++import (
++	"fmt"
++	"os"
++	"strconv"
++	"testing"
++
++	"github.com/sarchlab/akita/v3/mem/vm"
++)
++
++func TestR2FiniteCapacityAdmissionAndRetirement(t *testing.T) {
++	capacity, err := strconv.Atoi(os.Getenv("R2_FINITE_CAPACITY"))
++	if err != nil || capacity < 16 {
++		t.Fatal("missing finite capacity", err)
++	}
++	for _, vpn := range []bool{true, false} {
++		t.Run(fmt.Sprintf("entries%d_vpn%t", capacity, vpn), func(t *testing.T) {
++			tlb := MakeBuilder().WithNumMSHREntry(capacity).WithPerVPNMSHRBaseline(vpn).Build("R2Capacity")
++			for i := 0; i < capacity; i++ {
++				if tlb.mshr.IsFull() {
++					t.Fatalf("early full after %d entries", i)
++				}
++				tlb.mshr.Add(vm.PID(1), uint64(i)*32768, 0, 0)
++			}
++			entries, limit := tlb.mshr.Occupancy()
++			if entries != capacity || limit != capacity || !tlb.mshr.IsFull() {
++				t.Fatal("finite admission not enforced")
++			}
++			stats := tlb.MSHRAdmissionStats()
++			if stats["mshr_entry_capacity"] != float64(capacity) || stats["mshr_entry_capacity_unbounded"] != 0 {
++				t.Fatal("incorrect capacity metrics")
++			}
++			tlb.mshr.Remove(vm.PID(1), 0)
++			if tlb.mshr.IsFull() {
++				t.Fatal("retirement did not release slot")
++			}
++			t.Logf("R2_CAPACITY entries=%d vpn=%t full_then_retired=true", capacity, vpn)
++		})
++	}
++}
+--- a/akita/mem/vm/tlb_gmmu/tlb copy 2.go
++++ b/akita/mem/vm/tlb_gmmu/tlb copy 2.go
+@@ -1774,6 +1774,7 @@
+ 	}
+ 
+ 	newReq := vm.TranslationReqBuilder{}.
++		WithLATPC(req.LATPC).
+ 		WithSendTime(now).
+ 		WithPID(req.PID).
+ 		WithVAddr(targetVAddr).
+--- a/akkalat/400latency/runner/latpc_simple.go
++++ b/akkalat/400latency/runner/latpc_simple.go
+@@ -0,0 +1,42 @@
++package runner
++
++import (
++	"flag"
++	"github.com/sarchlab/akita/v3/mem/vm/tlb"
++)
++
++var latpcSimple = flag.Bool("latpc-simple", false, "LATPC L1 compression and optimistic aggregate-walker batching; no DRAM-row model.")
++
++func configuredLATPC() bool { validateSimpleComparisonFlags(); return *latpcSimple }
++
++func (r *Runner) reportLATPCSimple() {
++	enabled := 0.0
++	if *latpcSimple {
++		enabled = 1
++	}
++	r.metricsCollector.Collect("RebuttalConfig", "latpc_simple", enabled)
++	for _, gpu := range r.platform.GPUs {
++		for _, component := range gpu.L1VTLBs {
++			l1 := component.(*tlb.TLB)
++			on, capacity, s := l1.LATPCStats()
++			active := 0.0
++			if on {
++				active = 1
++			}
++			for name, value := range map[string]float64{
++				"latpc_enabled": active, "latpc_entry_capacity": float64(capacity),
++				"latpc_entries_allocated": float64(s.Allocated), "latpc_compressed_misses": float64(s.CompressedMisses),
++				"latpc_hit_under_miss": float64(s.HitUnderMiss), "latpc_full_observations": float64(s.FullObservations),
++				"latpc_peak_entries": float64(s.PeakEntries),
++			} {
++				r.metricsCollector.Collect(l1.Name(), name, value)
++			}
++		}
++		_, merged := gpu.GMMUEngine.LATPCStats()
++		r.metricsCollector.Collect(gpu.GMMUEngine.Name(), "latpc_batched_requests", float64(merged))
++	}
++	if len(r.platform.GPUs) > 0 {
++		_, merged := r.platform.GPUs[0].MMUEngine.LATPCStats()
++		r.metricsCollector.Collect("MMU", "latpc_batched_requests", float64(merged))
++	}
++}
+--- a/akkalat/400latency/runner/neighbor_abstract.go
++++ b/akkalat/400latency/runner/neighbor_abstract.go
+@@ -0,0 +1,41 @@
++package runner
++
++import "flag"
++
++var neighborAbstract = flag.String("neighbor-abstract", "off", "IOMMU aggregate-walker Neighbor adaptation: off, full, full-nosched.")
++
++func validateSimpleComparisonFlags() {
++	if !*latpcSimple && *neighborAbstract == "off" {
++		return
++	}
++	if !*gmmuVPNMSHRBaseline || !*mmutlbVPNMSHRBaseline || !*ptwDemandPTEOnly || !*mmutlbDemandPTEOnly ||
++		*gmmuFlexTLB || *mmutlbFlexTLB || *gmmuIdleIOMMUAssist || *mmuWalkCoalescing ||
++		*iommuFixedWalkLatency != 0 || configuredLog2PageSize() != 12 ||
++		(*latpcSimple && *neighborAbstract != "off") {
++		panic("simple SOTA comparison requires ordinary VPN MSHRs, native demand-only walks, and no PASTA/other policy")
++	}
++}
++
++func configuredNeighborAbstract() string { validateSimpleComparisonFlags(); return *neighborAbstract }
++
++func (r *Runner) reportNeighborAbstract() {
++	if len(r.platform.GPUs) == 0 || r.platform.GPUs[0].MMUEngine == nil {
++		return
++	}
++	policy, s := r.platform.GPUs[0].MMUEngine.NeighborAbstractStats()
++	r.metricsCollector.Collect("RebuttalConfig", "neighbor_abstract_policy", float64(policy))
++	for name, count := range map[string]uint64{
++		"neighbor_abstract_leaf_returns":         s.LeafReturns,
++		"neighbor_abstract_pending_completions":  s.PendingCompletions,
++		"neighbor_abstract_demand_pages":         s.DemandPages,
++		"neighbor_abstract_levels_skipped":       s.LevelsSkipped,
++		"neighbor_abstract_scheduler_held_ticks": s.SchedulerHeldTicks,
++		"neighbor_abstract_timeout_starts":       s.TimeoutStarts,
++		"neighbor_abstract_partial_l2":           s.PartialEvents[2],
++		"neighbor_abstract_partial_l3":           s.PartialEvents[3],
++		"neighbor_abstract_partial_l4":           s.PartialEvents[4],
++		"neighbor_abstract_partial_l5":           s.PartialEvents[5],
++	} {
++		r.metricsCollector.Collect("MMU", name, float64(count))
++	}
++}
+--- a/akkalat/400latency/runner/r23_configuration_test.go
++++ b/akkalat/400latency/runner/r23_configuration_test.go
+@@ -0,0 +1,83 @@
++package runner
++
++import (
++	"encoding/json"
++	"flag"
++	"github.com/sarchlab/akita/v3/sim"
++	"os"
++	"strings"
++	"testing"
++)
++
++func TestR23SimpleVectorAndPolicyFlags(t *testing.T) {
++	var jobs []struct {
++		ID, Config string
++		Command    []string
++	}
++	data, err := os.ReadFile(os.Getenv("R2_JOBS_JSON"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err = json.Unmarshal(data, &jobs); err != nil || len(jobs) == 0 {
++		t.Fatal("missing jobs", err)
++	}
++	for _, job := range jobs {
++		t.Run(job.ID, func(t *testing.T) {
++			saved := map[string]string{}
++			flag.VisitAll(func(f *flag.Flag) {
++				if !strings.HasPrefix(f.Name, "test.") {
++					saved[f.Name] = f.Value.String()
++					if err := flag.Set(f.Name, f.DefValue); err != nil {
++						t.Fatal(err)
++					}
++				}
++			})
++			t.Cleanup(func() {
++				for name, value := range saved {
++					if err := flag.Set(name, value); err != nil {
++						t.Error(err)
++					}
++				}
++			})
++			for _, arg := range job.Command[1:] {
++				name, value, found := strings.Cut(strings.TrimPrefix(arg, "-"), "=")
++				if name == "benchmark" {
++					continue
++				}
++				if !found {
++					value = "true"
++				}
++				if err := flag.Set(name, value); err != nil {
++					t.Fatal(err)
++				}
++			}
++			wantLATPC := job.Config == "latpc_simple"
++			wantNeighbor := "off"
++			if job.Config == "neighbor_abstract" {
++				wantNeighbor = "full"
++			}
++			if configuredLATPC() != wantLATPC || configuredNeighborAbstract() != wantNeighbor {
++				t.Fatal("wrong policy")
++			}
++			b := makeShaderArrayBuilder().withEngine(sim.NewSerialEngine()).withNumCU(1)
++			sa := &shaderArray{}
++			b.buildL1VTLBs(sa)
++			enabled, capacity, _ := sa.l1vTLBs[0].LATPCStats()
++			if enabled != wantLATPC || capacity != 4 {
++				t.Fatal("wrong L1 nominal capacity or LATC mode")
++			}
++		})
++	}
++}
++
++func TestR23RejectMixedPASTA(t *testing.T) {
++	oldN, oldL, oldVPN := *neighborAbstract, *latpcSimple, *gmmuVPNMSHRBaseline
++	t.Cleanup(func() { *neighborAbstract, *latpcSimple, *gmmuVPNMSHRBaseline = oldN, oldL, oldVPN })
++	*neighborAbstract, *latpcSimple, *gmmuVPNMSHRBaseline = "full", true, false
++	defer func() {
++		if recover() == nil {
++			t.Error("mixed PASTA policy accepted")
++		}
++	}()
++	validateSimpleComparisonFlags()
++}
+--- a/akkalat/400latency/runner/r2_runner_configuration_test.go
++++ b/akkalat/400latency/runner/r2_runner_configuration_test.go
+@@ -0,0 +1,121 @@
++package runner
++
++import (
++	"encoding/json"
++	"flag"
++	"os"
++	"reflect"
++	"strings"
++	"testing"
++
++	"github.com/sarchlab/akita/v3/mem/mem"
++	"github.com/sarchlab/akita/v3/mem/vm"
++	"github.com/sarchlab/akita/v3/mem/vm/translationtrace"
++	"github.com/sarchlab/akita/v3/sim"
++)
++
++// Construct only translation components, never a GPU workload or engine run.
++func TestR2ActualTranslationBuilders(t *testing.T) {
++	var jobs []struct {
++		ID       string   `json:"id"`
++		Command  []string `json:"command"`
++		Variant  string   `json:"r2_variant"`
++		Capacity int      `json:"gmmu_mshr_entries"`
++	}
++	data, err := os.ReadFile(os.Getenv("R2_JOBS_JSON"))
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err = json.Unmarshal(data, &jobs); err != nil || len(jobs) == 0 {
++		t.Fatal("missing R2 jobs", err)
++	}
++	for _, job := range jobs {
++		t.Run(job.ID, func(t *testing.T) {
++			// Each campaign command runs in a new process; do not inherit the
++			// previous subtest's flags when reproducing that environment.
++			saved := map[string]string{}
++			flag.VisitAll(func(f *flag.Flag) {
++				if !strings.HasPrefix(f.Name, "test.") {
++					saved[f.Name] = f.Value.String()
++					if err := flag.Set(f.Name, f.DefValue); err != nil {
++						t.Fatal(err)
++					}
++				}
++			})
++			t.Cleanup(func() {
++				for name, value := range saved {
++					if err := flag.Set(name, value); err != nil {
++						t.Error(err)
++					}
++				}
++				translationtrace.Configure(false, "", 100000)
++			})
++			seen := map[string]bool{}
++			for _, arg := range job.Command[1:] {
++				name, value, found := strings.Cut(strings.TrimPrefix(arg, "-"), "=")
++				if name == "benchmark" {
++					continue
++				}
++				if !found {
++					value = "true"
++				}
++				if seen[name] || flag.Lookup(name) == nil {
++					t.Fatalf("duplicate/unregistered flag %s", name)
++				}
++				seen[name] = true
++				if err := flag.Set(name, value); err != nil {
++					t.Fatal(err)
++				}
++			}
++			translationtrace.Configure(false, "", 100000)
++			engine := sim.NewSerialEngine()
++			table := mem.NewMultiPageFinder()
++			p := R9NanoPlatformBuilder{engine: engine, log2PageSize: 12}
++			var pt vm.PageTable
++			p.mmu, pt = p.createMMU(engine, table)
++			p.createIOMMUCache()
++			p.createIOMMUTLB(table, pt)
++			g := R9NanoGPUBuilder{engine: engine, freq: sim.GHz, gpuID: 1, gpuName: "R2Contract.GPU",
++				gpu: &GPU{Domain: sim.NewDomain("R2Contract.GPU")}, pageTable: pt, log2PageSize: 12,
++				mmu: p.mmu, IOMMUCache: p.IOMMUTLB, gmmuCacheTable: table}
++			g.buildGMMU()
++			g.buildGMMUCache()
++			l2, io := g.gmmuCache, p.IOMMUTLB
++			baseline := job.Variant == "baseline16" || job.Variant == "baseline_equal_area"
++			full := job.Variant == "pasta16"
++			if !baseline && !full && job.Variant != "m1_demand_only" {
++				t.Fatal("unknown variant")
++			}
++			low, high := l2.PTCLThresholds()
++			assist, _, _, _ := l2.IdleIOMMUAssistStats()
++			line, _, _, _, _, _, _, _, rows := io.SetAsLineStats()
++			sets, ways, _ := l2.TLBGeometry()
++			wantLow, wantHigh := 0, 0
++			if baseline {
++				wantHigh = 1000000
++			}
++			if full {
++				wantLow, wantHigh = 4, 16
++			}
++			// The frozen IOTLB has no capacity getter; inspect its actual
++			// integer field without changing production code or using unsafe.
++			ioCapacity := reflect.ValueOf(io).Elem().FieldByName("mshr").Elem().Elem().FieldByName("capacity").Int()
++			if l2.VPNMSHRBaselineEnabled() != baseline || io.VPNMSHRBaselineEnabled() != baseline ||
++				io.DemandPTEOnlyEnabled() == full || *ptwDemandPTEOnly == full ||
++				l2.PTCLModeEnabled() != (job.Variant == "m1_demand_only") ||
++				low != wantLow || high != wantHigh || assist != full || line != full ||
++				rows != 0 || (l2.PLTStudyStats()["plt_total_rows"] > 0) != full ||
++				p.mmu.WalkCoalescingEnabled() || l2.PTCLLineSize() != 8 ||
++				l2.PTELookupLatencyCycles() != 32 || l2.PTELookupSlotLimit() != 8 || io.LookupLatencyCycles() != 80 ||
++				sets != 16 || ways != 16 || l2.MSHRAdmissionStats()["mshr_entry_capacity"] != float64(job.Capacity) ||
++				l2.MSHRAdmissionStats()["mshr_entry_capacity_unbounded"] != 0 ||
++				ioCapacity != 64 ||
++				g.gmmu.PTWCapacity() != 4 || p.mmu.PTWCapacity() != 16 ||
++				l2.IOMMUPort != io.GetPortByName("Top") || *maxWGCount != 76800 || *numGPMs != 48 ||
++				engine.CurrentTime() != 0 {
++				t.Fatal("R2 flags did not reach expected translation configuration")
++			}
++			t.Logf("R2_RUNNER id=%s variant=%s capacity=%d no_gpu_workload=true", job.ID, job.Variant, job.Capacity)
++		})
++	}
++}
+--- a/akkalat/400latency/runner/r9nanobuilder.go
++++ b/akkalat/400latency/runner/r9nanobuilder.go
+@@ -674,6 +674,7 @@
+ 		WithLowModule(b.mmu.GetPortByName("Top")).
+ 		WithIsPrediction(true).
+ 		WithDemandPTEOnly(*ptwDemandPTEOnly).
++		WithLATPC(configuredLATPC()).
+ 		Build(fmt.Sprintf("%s.GMMU", b.gpuName))
+ 
+ 	b.gmmu = gmmu
+--- a/akkalat/400latency/runner/report.go
++++ b/akkalat/400latency/runner/report.go
+@@ -29,6 +29,8 @@
+ 	r.reportDRAMTransactionCount()
+ 	r.reportIOMMUTLBStats()
+ 	r.reportMMUCoalescingStats()
++	r.reportNeighborAbstract()
++	r.reportLATPCSimple()
+ 	// r.reportGMMUCounts()
+ 	// r.reportGMMUCacheCounts()
+ 	r.dumpMetrics()
+--- a/akkalat/400latency/runner/shaderarray.go
++++ b/akkalat/400latency/runner/shaderarray.go
+@@ -276,6 +276,7 @@
+ 
+ func (b *shaderArrayBuilder) buildCUs(sa *shaderArray) {
+ 	cuBuilder := cu.MakeBuilder().
++		WithLATPC(configuredLATPC()).
+ 		WithEngine(b.engine).
+ 		WithFreq(b.freq).
+ 		WithGPUID(b.gpuID).
+@@ -344,6 +345,7 @@
+ 
+ func (b *shaderArrayBuilder) buildL1VTLBs(sa *shaderArray) {
+ 	builder := tlb.MakeBuilder().
++		WithLATPC(configuredLATPC()).
+ 		WithEngine(b.engine).
+ 		WithFreq(b.freq).
+ 		WithNumMSHREntry(4).
+--- a/akkalat/400latency/runner/timingplatform.go
++++ b/akkalat/400latency/runner/timingplatform.go
+@@ -454,6 +454,8 @@
+ 		WithPageTable(pageTable).
+ 		WithGMMUCacheTable(gmmuCacheTable).
+ 		WithWalkCoalescing(*mmuWalkCoalescing).
++		WithNeighborAbstract(configuredNeighborAbstract()).
++		WithLATPC(configuredLATPC()).
+ 		WithDemandPTEOnly(*ptwDemandPTEOnly).
+ 		WithMMUTopModule(b.mmuTopModule)
+ 
+--- a/mgpusim/timing/cu/cubuilder.go
++++ b/mgpusim/timing/cu/cubuilder.go
+@@ -27,7 +27,10 @@
+ 
+ 	visTracer        tracing.Tracer
+ 	enableVisTracing bool
+-}
++	latpcEnabled     bool
++}
++
++func (b Builder) WithLATPC(enabled bool) Builder { b.latpcEnabled = enabled; return b }
+ 
+ // MakeBuilder returns a default builder object
+ func MakeBuilder() Builder {
+@@ -174,6 +177,7 @@
+ 
+ 	coalescer := &defaultCoalescer{
+ 		log2CacheLineSize: b.log2CachelineSize,
++		latpcEnabled:      b.latpcEnabled,
+ 	}
+ 	vectorMemoryUnit := NewVectorMemoryUnit(cu, b.scratchpadPreparer, coalescer)
+ 	cu.VectorMemUnit = vectorMemoryUnit
+--- a/mgpusim/timing/cu/defaultcoalescer.go
++++ b/mgpusim/timing/cu/defaultcoalescer.go
+@@ -2,12 +2,14 @@
+ 
+ import (
+ 	"github.com/sarchlab/akita/v3/mem/mem"
++	"github.com/sarchlab/akita/v3/mem/vm"
+ 	"github.com/sarchlab/mgpusim/v3/insts"
+ 	"github.com/sarchlab/mgpusim/v3/timing/wavefront"
+ )
+ 
+ type defaultCoalescer struct {
+ 	log2CacheLineSize uint64
++	latpcEnabled      bool
+ }
+ 
+ func (c defaultCoalescer) generateMemTransactions(
+@@ -21,6 +23,34 @@
+ 	} else {
+ 		reqs := c.generateWriteReqs(wf)
+ 		transactions = c.generateWriteTransactions(wf, reqs)
++	}
++	if c.latpcEnabled {
++		var vpns []uint64
++		seen := map[uint64]bool{}
++		for _, t := range transactions {
++			var address uint64
++			if t.Read != nil {
++				address = t.Read.Address
++			} else {
++				address = t.Write.Address
++			}
++			vpn := address >> 12
++			if !seen[vpn] {
++				seen[vpn] = true
++				vpns = append(vpns, vpn)
++			}
++		}
++		byVPN := map[uint64]vm.LATPCInfo{}
++		for _, info := range vm.DetectLATPC(vpns) {
++			byVPN[info.VPN] = info
++		}
++		for _, t := range transactions {
++			if t.Read != nil {
++				t.Read.Info = byVPN[t.Read.Address>>12]
++			} else {
++				t.Write.Info = byVPN[t.Write.Address>>12]
++			}
++		}
+ 	}
+ 	return transactions
+ }
+--- a/mgpusim/timing/cu/latpc_flow_test.go
++++ b/mgpusim/timing/cu/latpc_flow_test.go
+@@ -0,0 +1,49 @@
++package cu
++
++import (
++	"github.com/sarchlab/akita/v3/mem/vm"
++	"github.com/sarchlab/mgpusim/v3/insts"
++	"github.com/sarchlab/mgpusim/v3/timing/wavefront"
++	"testing"
++)
++
++func TestLATPCCoalescerLaneOrder(t *testing.T) {
++	for _, opcode := range []insts.Opcode{20, 28} {
++		wf := wavefront.NewWavefront(nil)
++		inst := insts.NewInst()
++		inst.FormatType, inst.Opcode = insts.FLAT, opcode
++		inst.Dst = insts.NewVRegOperand(0, 0, 1)
++		wf.SetDynamicInst(wavefront.NewInst(inst))
++		sp := wf.Scratchpad().AsFlat()
++		sp.EXEC = 15
++		vpns := []uint64{22, 20, 18, 16}
++		for lane, vpn := range vpns {
++			sp.ADDR[lane] = vpn << 12
++		}
++		for _, enabled := range []bool{false, true} {
++			c := defaultCoalescer{log2CacheLineSize: 6, latpcEnabled: enabled}
++			transactions := c.generateMemTransactions(wf)
++			if len(transactions) != 4 {
++				t.Fatal("unexpected transaction count")
++			}
++			for lane, transaction := range transactions {
++				var value interface{}
++				if transaction.Read != nil {
++					value = transaction.Read.Info
++				} else {
++					value = transaction.Write.Info
++				}
++				if !enabled {
++					if value != nil {
++						t.Fatal("baseline annotated")
++					}
++					continue
++				}
++				info, ok := value.(vm.LATPCInfo)
++				if !ok || !info.Matches(vpns[lane]) || info.BaseVPN != 22 || info.Index != uint8(lane) {
++					t.Fatal("lane order or negative stride metadata lost")
++				}
++			}
++		}
++	}
++}
+--- a/mgpusim/timing/rob/latpc_flow_test.go
++++ b/mgpusim/timing/rob/latpc_flow_test.go
+@@ -0,0 +1,17 @@
++package rob
++
++import (
++	"github.com/sarchlab/akita/v3/mem/mem"
++	"github.com/sarchlab/akita/v3/mem/vm"
++	"testing"
++)
++
++func TestLATPCMetadataThroughROB(t *testing.T) {
++	info := vm.DetectLATPC([]uint64{8, 10})[1]
++	b := &ReorderBuffer{}
++	read := mem.ReadReqBuilder{}.WithAddress(10 << 12).WithByteSize(4).WithPID(1).WithInfo(info).Build()
++	write := mem.WriteReqBuilder{}.WithAddress(10 << 12).WithPID(1).WithData([]byte{1, 2, 3, 4}).WithInfo(info).Build()
++	if b.duplicateReadReq(read).Info != info || b.duplicateWriteReq(write).Info != info {
++		t.Fatal("ROB lost stride metadata")
++	}
++}
+--- a/mgpusim/timing/rob/rob.go
++++ b/mgpusim/timing/rob/rob.go
+@@ -252,6 +252,7 @@
+ 
+ func (b *ReorderBuffer) duplicateReadReq(req *mem.ReadReq) *mem.ReadReq {
+ 	return mem.ReadReqBuilder{}.
++		WithInfo(req.Info).
+ 		WithAddress(req.Address).
+ 		WithByteSize(req.AccessByteSize).
+ 		WithPID(req.PID).
+@@ -261,6 +262,7 @@
+ 
+ func (b *ReorderBuffer) duplicateWriteReq(req *mem.WriteReq) *mem.WriteReq {
+ 	return mem.WriteReqBuilder{}.
++		WithInfo(req.Info).
+ 		WithAddress(req.Address).
+ 		WithPID(req.PID).
+ 		WithData(req.Data).
