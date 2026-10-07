@@ -1,5 +1,20 @@
 # Remote Rebuttal Runs
 
+R3-R7 最新 FULL14 运行包位于
+[`r3-r7-full14-20261007/`](r3-r7-full14-20261007/)。它从每个 workload
+的 rebuttal 前原始命令恢复 R3-R6，只修改对应 sensitivity flag；最多 16
+并行并保留 30 GiB MemAvailable。R5 默认 `(4,16)` 和 R6 Assist-ON 复用
+R3，因此不重复运行。R7 是与 benchmark 无关的两组固定 open-loop 请求流，
+只保留四个唯一 OFF/ON 点，不用十四个标签重复同一模拟。启动前运行：
+
+```bash
+cd rebuttal/r3-r7-full14-20261007
+python3 verify_package.py
+./run.sh
+```
+
+全部任务必须开启 AkitaRTM；缺少 monitor URL 的输出不会通过完成检查。
+
 R2/R3/R4 的合并启动入口是 `bash run_r2_r3_r4.sh --workers 15`，
 共 84 次新运行，三组共享并行上限。完整命令与 R4 模型限制见
 [R2_R3_R4_REMOTE.md](R2_R3_R4_REMOTE.md)。只上传脚本、配置、源码和二进制，不传结果。
