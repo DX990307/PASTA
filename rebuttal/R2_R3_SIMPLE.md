@@ -29,24 +29,32 @@ Failed or unverified tasks are retained, never silently retried or overwritten.
 
 ## Matrix
 
-84 logical configurations: six configurations times all 14 benchmarks.
-The reuse-first correction in [RESULT_REUSE.md](RESULT_REUSE.md) assigns
-42 control points to existing owners/results; only 42 new remote runs remain.
+The frozen plan retains 84 historical logical points. The latest scope has
+70 active R2/R3 points: 14 M1 points are excluded, 28 ordinary controls are
+referenced, and only 42 new remote runs remain (B20/Neighbor/LATPC).
+See [RESULT_REUSE.md](RESULT_REUSE.md) and `provenance/r234-scope.json`.
 
 | Configuration | R2 | R3 | Local L2 MSHRs | Shared IOTLB MSHRs |
 | --- | --- | --- | ---: | ---: |
 | Baseline16 | main | shared control | 16 | 64 |
 | Baseline estimated20 | estimated-budget control | no | 20 | 64 |
 | PASTA16 | main | shared comparison | 16 | 64 |
-| M1 demand-only | auxiliary | no | 16 | 64 |
+| M1 demand-only | excluded | excluded | 16 | 64 |
 | Neighbor abstract | no | comparison | 16 | 64 |
 | LATPC simple | no | comparison | 16 | 64 |
 
-R2 therefore has 56 logical points, R3 has 56 logical points, and the 28
-Baseline16/PASTA16 points are shared rather than executed twice.
+R2 has 42 logical points (B16/B20/P16), with only B20's 14 points newly run.
+R3 has 56 logical points, sharing 28 Baseline16/PASTA16 points with R2.
+For R3, reuse is conditional on required common metric availability, not
+performance alone. The current audit finds 27 completed controls have the
+required raw common counters/trace schemas; MT/PASTA16 awaits its existing
+run. No supplementary control run is currently needed. If a new necessary
+metric is unavailable and cannot be derived from original traces, prepare
+and run only the corresponding supplementary control measurements. Their
+purpose is new data collection, not a binary-based performance rerun.
 **B20 is the user-approved provisional local-state estimate, not measured
-complete-system equal area.** Measured N_eq remains unknown. M1 is a nested
-demand-only substrate control, not an independent full-PASTA removal.
+complete-system equal area.** Measured N_eq remains unknown. M1 stays in its
+independent R10 family and is not required to finish R2/R3.
 **The user-approved R3 scope is the four-way Baseline/PASTA/Neighbor/LATPC
 mechanism comparison. HDPAT is intentionally excluded, not a prerequisite
 or missing task for this scope.** See `provenance/r3-scope.json`.
@@ -66,6 +74,11 @@ five-way planning label is superseded by this scope amendment. Its jobs,
 binary, source, and configuration fingerprints are deliberately unchanged,
 so existing downloads/runs remain compatible. Performance experiments and
 post-run evidence qualification are still required; CPU tests are not results.
+
+R4 will add only missing PASTA-no-PLT runs (14 if all are missing), referencing
+existing compatible PASTA-Full. No new default PASTA run is requested for R4.
+R4 preparation/measurement correctness remains a separate gate; this package
+does not contain or launch an R4 campaign.
 
 ## Simplified Models
 

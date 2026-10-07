@@ -26,15 +26,28 @@ def load_reuse(manifest, machine='r2-r3'):
     controls = {key for key, job in jobs.items() if job['config'] in ('baseline16', 'pasta16', 'm1_demand_only')}
     if machine == 'r2-r3' and set(policy['refs']) != controls:
         raise RuntimeError('Reuse policy must assign every existing control exactly once')
+    data_audit = None
+    if machine == 'r2-r3':
+        scope = read(ROOT / 'provenance/r234-scope.json')
+        data_audit = scope['R3']['control_data_audit']
+        r3_controls = {key for key, job in jobs.items() if job['config'] in ('baseline16', 'pasta16')}
+        if scope['manifest_sha256'] != policy['manifest_sha256'] or set(data_audit) != r3_controls:
+            raise RuntimeError('R3 measurement coverage belongs to a different control matrix')
     for identity, ref in policy['refs'].items():
         job = jobs.get(identity)
         if (job is None or (machine == 'r2-r3' and job['config'] not in ('baseline16', 'pasta16', 'm1_demand_only'))
                 or ref['target_command_sha256'] != command_hash(job['command'])
-                or ref['disposition'] not in ('reuse_external', 'external_pending')
+                or ref['disposition'] not in ('reuse_external', 'external_pending', 'excluded_scope')
                 or not ref.get('source_batch') or not ref.get('source_id')):
             raise RuntimeError('Invalid reference assignment: ' + identity)
         if ref['disposition'] == 'reuse_external' and (ref['source_status_at_audit'] != 'completed' or not ref.get('evidence_files')):
             raise RuntimeError('Reuse has no qualified completed source: ' + identity)
+        if (data_audit is not None and job['config'] in ('baseline16', 'pasta16')
+                and ref['disposition'] == 'reuse_external'
+                and data_audit[identity]['status'] != 'existing_common_data_available'):
+            raise RuntimeError('Prepare targeted R3 supplementary data collection or refresh its coverage audit: ' + identity)
+        if ref['disposition'] == 'excluded_scope' and (machine != 'r2-r3' or job['config'] != 'm1_demand_only'):
+            raise RuntimeError('Unexpected scope exclusion: ' + identity)
     return policy['refs']
 
 def execution_status(directory, reference=None):
@@ -111,7 +124,7 @@ def summary(output, manifest, refs=None):
                         driver = row[3].strip()
         reference = refs.get(job['id'], {})
         status = execution_status(directory, reference)
-        external = status in ('reuse_external', 'external_pending')
+        external = status in ('reuse_external', 'external_pending', 'excluded_scope')
         rows.append({'id': job['id'], 'benchmark': job['benchmark'], 'config': job['config'],
                      'execution_status': status,
                      'returncode': completion.get('returncode', ''), 'driver_time_s': driver,
@@ -207,6 +220,7 @@ def run(machine, transferred, check, workers=None):
                           'new_remote_jobs': len(manifest['jobs']) - len(refs),
                           'completed_external_references': sum(r['disposition'] == 'reuse_external' for r in refs.values()),
                           'pending_external_references': sum(r['disposition'] == 'external_pending' for r in refs.values()),
+                          'excluded_scope_points': sum(r['disposition'] == 'excluded_scope' for r in refs.values()),
                           'workers': manifest['workers'], 'memavailable_gib': available(),
                           'binaries_verified': True}, indent=2))
         return
@@ -227,7 +241,7 @@ def run(machine, transferred, check, workers=None):
     while True:
         refs = load_reuse(manifest, machine)
         counts = {'queued': 0, 'running': 0, 'exited': 0, 'failed': 0, 'unverified': 0,
-                  'reuse_external': 0, 'external_pending': 0}
+                  'reuse_external': 0, 'external_pending': 0, 'excluded_scope': 0}
         candidate = None
         for job in manifest['jobs']:
             directory = output / job['id']

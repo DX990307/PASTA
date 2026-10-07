@@ -2,7 +2,8 @@
 
 R2/R3 新任务包见 [R2_R3_SIMPLE.md](R2_R3_SIMPLE.md)，启动脚本为
 `bash run_r2_r3.sh --workers 15`。包含 FULL14 的 84 个逻辑点；
-按 [复用规则](RESULT_REUSE.md) 引用 42 个控制点，只新跑 42 项；
+按 [最新范围和复用规则](RESULT_REUSE.md) 排除 14 个 M1 点、引用 28 个控制点，
+只新跑 B_Neq/Neighbor/LATPC 共 42 项。R3 若确实缺少必要公共指标，再单独补测控制点；
 R2 的 B20 为估算容量，R3 的 Neighbor/LATPC 为简化模型；本轮 R3 明确不纳入 HDPAT，
 仅比较 Baseline/PASTA/Neighbor/LATPC 的机制差异。
 

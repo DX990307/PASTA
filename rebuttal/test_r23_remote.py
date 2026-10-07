@@ -90,5 +90,35 @@ class RemoteR23Tests(unittest.TestCase):
             refs = runner.load_reuse(manifest, machine)
             self.assertTrue(all(r['disposition'] == 'reuse_external' for r in refs.values()))
 
+    def test_narrowed_r2_has_no_m1_dependency(self):
+        refs = runner.load_reuse(self.manifest)
+        excluded = {key for key, ref in refs.items() if ref['disposition'] == 'excluded_scope'}
+        expected = {j['id'] for j in self.manifest['jobs'] if j['config'] == 'm1_demand_only'}
+        self.assertEqual(excluded, expected)
+        self.assertEqual(len(excluded), 14)
+        self.assertEqual(len(refs) - len(excluded), 28)
+
+    def test_r3_old_controls_are_checked_for_data_not_only_runtime(self):
+        scope = runner.read(runner.ROOT / 'provenance/r234-scope.json')
+        expected = {j['id'] for j in self.manifest['jobs'] if j['config'] in ('baseline16', 'pasta16')}
+        self.assertEqual(set(scope['R3']['control_data_audit']), expected)
+        self.assertEqual(scope['manifest_sha256'], runner.digest(runner.ROOT / 'plans/r2-r3.json'))
+        for key, record in scope['R3']['control_data_audit'].items():
+            if record['status'] == 'existing_common_data_available':
+                self.assertEqual(record['missing'], [])
+                self.assertGreater(record['pressure_windows'], 0)
+        self.assertEqual(scope['R2']['new_runs'], 14)
+        self.assertFalse(scope['R2']['M1_required'])
+        self.assertEqual(scope['R4']['new_configurations'], ['pasta_no_plt'])
+
+    def test_missing_necessary_r3_data_requires_supplementary_preparation(self):
+        scope = copy.deepcopy(runner.read(runner.ROOT / 'provenance/r234-scope.json'))
+        key = next(k for k,r in scope['R3']['control_data_audit'].items() if r['status']=='existing_common_data_available')
+        scope['R3']['control_data_audit'][key]['status']='needs_supplementary_measurement'
+        original_read=runner.read
+        with patch.object(runner,'read',side_effect=lambda p:scope if p.name=='r234-scope.json' else original_read(p)):
+            with self.assertRaisesRegex(RuntimeError,'supplementary data collection'):
+                runner.load_reuse(self.manifest)
+
 
 if __name__ == '__main__': unittest.main()

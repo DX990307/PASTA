@@ -1,5 +1,5 @@
 {
-  "limits": "Reference pointers/checksums only, no result values or raw logs. Do not launch these logical controls on the remote R2/R3 machine. Existing running/queued sources are dependencies, not completed results. Do not kill already running remote copies or overwrite their evidence.",
+  "limits": "R2/R3 references and scope exclusions only, no result values. Do not launch M1 here. R3 required common data are audited separately; any missing supplementary measurement must be explicitly prepared, not a blind duplicate.",
   "manifest_sha256": "6eeddf855facb394066fc73f805a11218c8078249afe3b30ea96b9b3efcbdcce",
   "refs": {
     "aes__baseline16": {
@@ -71,8 +71,8 @@
       "target_command_sha256": "41fd0d345b3e9ee165c720615b3f51ca58a5a26db3499d4484b2c49a715568f1"
     },
     "aes__m1_demand_only": {
-      "disposition": "external_pending",
-      "qualification": "Await existing owner; not a completed result",
+      "disposition": "excluded_scope",
+      "qualification": "Excluded from current R2/R3; independent R10 ownership is unchanged",
       "source_batch": "r10-full14-demand-v10",
       "source_id": "aes__demand_both_ptcl",
       "source_job_sha256": "3b2d101691c76b3b5cbe824d7c77e6115e93af93e27fbced6877d89a28336478",
@@ -217,8 +217,8 @@
       "target_command_sha256": "30f3f11d13c6b752b767ca8dacb283af126f282ea5c81cb68af13ca5c4376924"
     },
     "bitonicsort__m1_demand_only": {
-      "disposition": "external_pending",
-      "qualification": "Await existing owner; not a completed result",
+      "disposition": "excluded_scope",
+      "qualification": "Excluded from current R2/R3; independent R10 ownership is unchanged",
       "source_batch": "r10-full14-demand-v10",
       "source_id": "bitonicsort__demand_both_ptcl",
       "source_job_sha256": "f49d11ab805e6c2a7372fe6e89f255d1fe133cc9b956fd03067d0001c1f8e37a",
@@ -363,8 +363,8 @@
       "target_command_sha256": "4a77dafa12b3c49a92935c3a50b34a18f3140e96cadb939b35c6c31f68008343"
     },
     "fastwalshtransform__m1_demand_only": {
-      "disposition": "external_pending",
-      "qualification": "Await existing owner; not a completed result",
+      "disposition": "excluded_scope",
+      "qualification": "Excluded from current R2/R3; independent R10 ownership is unchanged",
       "source_batch": "r10-full14-demand-v10",
       "source_id": "fastwalshtransform__demand_both_ptcl",
       "source_job_sha256": "7bfd2a0df86734d0fa38f07c036790d3399a475289d8479e2c335b36f00cd27c",
@@ -509,8 +509,8 @@
       "target_command_sha256": "75c807620f7282bf2ae50bc578d10e888e3e9eb29bf51112db09001008675b78"
     },
     "fft__m1_demand_only": {
-      "disposition": "external_pending",
-      "qualification": "Await existing owner; not a completed result",
+      "disposition": "excluded_scope",
+      "qualification": "Excluded from current R2/R3; independent R10 ownership is unchanged",
       "source_batch": "r10-full14-demand-v10",
       "source_id": "fft__demand_both_ptcl",
       "source_job_sha256": "7d7887c3561377d7fcdad61242c2b501dddc3ac5db12c47aa9fc64b3198a343d",
@@ -655,8 +655,8 @@
       "target_command_sha256": "7c24edbe8761d3de92734e85dacca27c378a1f4cb3817b19078dd1f1179ce00c"
     },
     "fir__m1_demand_only": {
-      "disposition": "external_pending",
-      "qualification": "Await existing owner; not a completed result",
+      "disposition": "excluded_scope",
+      "qualification": "Excluded from current R2/R3; independent R10 ownership is unchanged",
       "source_batch": "r10-full14-demand-v10",
       "source_id": "fir__demand_both_ptcl",
       "source_job_sha256": "0527a68ba2d663668de84911c3179d1cf49cf7458363d146ad5f3a5458d9c6c3",
@@ -801,7 +801,7 @@
       "target_command_sha256": "7b23fbe609e4729b283f0e30aa042f281ea10274e98a86b00dc5a12c9a97fc4e"
     },
     "floydwarshall__m1_demand_only": {
-      "disposition": "reuse_external",
+      "disposition": "excluded_scope",
       "evidence_files": [
         {
           "bytes": 5118,
@@ -860,7 +860,7 @@
         }
       ],
       "limits": "Reuse old common counters only; absent new feature counters are not measured zero. Driver time is time to the recorded completion count; compare actual WG populations.",
-      "qualification": "Strict source evidence verified; cross-model compatibility audited",
+      "qualification": "Excluded from current R2/R3; independent R10 ownership is unchanged",
       "source_batch": "r10-demand-mshr-v10",
       "source_id": "floydwarshall__demand_both_ptcl",
       "source_job_sha256": "0ee36c0877cae1e7d33f79135b12cb30b752fcf461409e3c4d857ff84d3fe023",
@@ -1005,8 +1005,8 @@
       "target_command_sha256": "11a922223d07aa3137f677b0d303ed45491ffe1b540899d0de3c6c9cf0e9a353"
     },
     "im2col__m1_demand_only": {
-      "disposition": "external_pending",
-      "qualification": "Await existing owner; not a completed result",
+      "disposition": "excluded_scope",
+      "qualification": "Excluded from current R2/R3; independent R10 ownership is unchanged",
       "source_batch": "r10-full14-demand-v10",
       "source_id": "im2col__demand_both_ptcl",
       "source_job_sha256": "9981f5760efc417371648528e0f16fffe402d88c2c6fb5d84eee28c2cef317b2",
@@ -1151,7 +1151,7 @@
       "target_command_sha256": "4473fa68c0b9e4b2078909d727f271aad7562ed083d42f00faefcbc74e1806cd"
     },
     "kmeans__m1_demand_only": {
-      "disposition": "reuse_external",
+      "disposition": "excluded_scope",
       "evidence_files": [
         {
           "bytes": 5082,
@@ -1210,7 +1210,7 @@
         }
       ],
       "limits": "Reuse old common counters only; absent new feature counters are not measured zero. Driver time is time to the recorded completion count; compare actual WG populations.",
-      "qualification": "Strict source evidence verified; cross-model compatibility audited",
+      "qualification": "Excluded from current R2/R3; independent R10 ownership is unchanged",
       "source_batch": "r10-demand-mshr-v10",
       "source_id": "kmeans__demand_both_ptcl",
       "source_job_sha256": "bbbc9d54c15eec2a8cb51a8ab485f096ffb7a194c672ef0010167284346f36d3",
@@ -1355,8 +1355,8 @@
       "target_command_sha256": "80ed456e408e659fcbc25a08c00a512734a137f9602da115f5395024e1fe070c"
     },
     "matrixmultiplication-ptw__m1_demand_only": {
-      "disposition": "external_pending",
-      "qualification": "Await existing owner; not a completed result",
+      "disposition": "excluded_scope",
+      "qualification": "Excluded from current R2/R3; independent R10 ownership is unchanged",
       "source_batch": "r10-full14-demand-v10",
       "source_id": "matrixmultiplication-ptw__demand_both_ptcl",
       "source_job_sha256": "b72fc0ca486f7731f43fce84fbab4f28c7815e8e8ef04ad81307eb974b7e45fc",
@@ -1501,8 +1501,8 @@
       "target_command_sha256": "209ed082470c8d516b4891cf58865f4ba3de60486ac141998ba3b3d24a85b7e1"
     },
     "matrixtranspose__m1_demand_only": {
-      "disposition": "external_pending",
-      "qualification": "Await existing owner; not a completed result",
+      "disposition": "excluded_scope",
+      "qualification": "Excluded from current R2/R3; independent R10 ownership is unchanged",
       "source_batch": "r10-full14-demand-v10",
       "source_id": "matrixtranspose__demand_both_ptcl",
       "source_job_sha256": "33b2a13c5f0d0b94246f8611a3d2c7a38ec2538b5b40aa0685ca42740fc9d050",
@@ -1589,8 +1589,8 @@
       "target_command_sha256": "73068223457cedfcdd258b7c9aa3ebbdd2495ba3c3c8dfc2f76a990669c39fcc"
     },
     "pagerank__m1_demand_only": {
-      "disposition": "external_pending",
-      "qualification": "Await existing owner; not a completed result",
+      "disposition": "excluded_scope",
+      "qualification": "Excluded from current R2/R3; independent R10 ownership is unchanged",
       "source_batch": "r10-full14-pagerank-v12",
       "source_id": "pagerank__demand_both_ptcl",
       "source_job_sha256": "0f71f44a05aa72444dcde06168788ae42bfa473afe41e3c06197b77d2f9a2b59",
@@ -1735,7 +1735,7 @@
       "target_command_sha256": "bf745e21a07bf8bd3370537f68e2a857dcc659d841f55082631b74ed49c9063c"
     },
     "relu__m1_demand_only": {
-      "disposition": "reuse_external",
+      "disposition": "excluded_scope",
       "evidence_files": [
         {
           "bytes": 5123,
@@ -1794,7 +1794,7 @@
         }
       ],
       "limits": "Reuse old common counters only; absent new feature counters are not measured zero. Driver time is time to the recorded completion count; compare actual WG populations.",
-      "qualification": "Strict source evidence verified; cross-model compatibility audited",
+      "qualification": "Excluded from current R2/R3; independent R10 ownership is unchanged",
       "source_batch": "r10-demand-mshr-v10",
       "source_id": "relu__demand_both_ptcl",
       "source_job_sha256": "1e674535d0a3a5294139748eb510be9190776a797f216cb4d05c429fc7a42601",
@@ -1939,8 +1939,8 @@
       "target_command_sha256": "e2e23aef97740b5a76e20cbb64dbf1cee8f6e0ebee8de73ea57b10199378fd7f"
     },
     "simpleconvolution__m1_demand_only": {
-      "disposition": "external_pending",
-      "qualification": "Await existing owner; not a completed result",
+      "disposition": "excluded_scope",
+      "qualification": "Excluded from current R2/R3; independent R10 ownership is unchanged",
       "source_batch": "r10-full14-demand-v10",
       "source_id": "simpleconvolution__demand_both_ptcl",
       "source_job_sha256": "307d108bab8b67e6dc9c182c6f1b98296b23e7bbd158b4eff5d754e56047de18",
@@ -2085,7 +2085,7 @@
       "target_command_sha256": "d1ac8d31f13f8528e054c1eb17787a0831307a3437998ec8198c97fad253830f"
     },
     "spmv__m1_demand_only": {
-      "disposition": "reuse_external",
+      "disposition": "excluded_scope",
       "evidence_files": [
         {
           "bytes": 5126,
@@ -2144,7 +2144,7 @@
         }
       ],
       "limits": "Reuse old common counters only; absent new feature counters are not measured zero. Driver time is time to the recorded completion count; compare actual WG populations.",
-      "qualification": "Strict source evidence verified; cross-model compatibility audited",
+      "qualification": "Excluded from current R2/R3; independent R10 ownership is unchanged",
       "source_batch": "r10-demand-mshr-v10",
       "source_id": "spmv__demand_both_ptcl",
       "source_job_sha256": "7b61c14f77ae20b7dda328cc1e74fa4ef598e27df80414c9882d86f5b4cff715",

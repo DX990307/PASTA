@@ -1,0 +1,497 @@
+{
+  "M1_retained_only_as_archived_plan_points": 14,
+  "R2": {
+    "M1_required": false,
+    "limits": "B20 remains an estimated-budget B_Neq proxy, not measured complete equal area",
+    "new_configurations": [
+      "baseline_estimated20"
+    ],
+    "new_runs": 14,
+    "references": [
+      "baseline16",
+      "pasta16"
+    ]
+  },
+  "R3": {
+    "control_data_audit": {
+      "aes__baseline16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service"
+        ],
+        "pressure_windows": 7,
+        "status": "existing_common_data_available"
+      },
+      "aes__pasta16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 7,
+        "status": "existing_common_data_available"
+      },
+      "bitonicsort__baseline16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service"
+        ],
+        "pressure_windows": 1,
+        "status": "existing_common_data_available"
+      },
+      "bitonicsort__pasta16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 1,
+        "status": "existing_common_data_available"
+      },
+      "fastwalshtransform__baseline16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service"
+        ],
+        "pressure_windows": 2,
+        "status": "existing_common_data_available"
+      },
+      "fastwalshtransform__pasta16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 1,
+        "status": "existing_common_data_available"
+      },
+      "fft__baseline16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service"
+        ],
+        "pressure_windows": 3,
+        "status": "existing_common_data_available"
+      },
+      "fft__pasta16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 3,
+        "status": "existing_common_data_available"
+      },
+      "fir__baseline16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service"
+        ],
+        "pressure_windows": 3,
+        "status": "existing_common_data_available"
+      },
+      "fir__pasta16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 3,
+        "status": "existing_common_data_available"
+      },
+      "floydwarshall__baseline16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service"
+        ],
+        "pressure_windows": 2,
+        "status": "existing_common_data_available"
+      },
+      "floydwarshall__pasta16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_entry_wait",
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 1,
+        "status": "existing_common_data_available"
+      },
+      "im2col__baseline16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 1,
+        "status": "existing_common_data_available"
+      },
+      "im2col__pasta16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_entry_wait",
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 1,
+        "status": "existing_common_data_available"
+      },
+      "kmeans__baseline16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 2,
+        "status": "existing_common_data_available"
+      },
+      "kmeans__pasta16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_entry_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 1,
+        "status": "existing_common_data_available"
+      },
+      "matrixmultiplication-ptw__baseline16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service"
+        ],
+        "pressure_windows": 4,
+        "status": "existing_common_data_available"
+      },
+      "matrixmultiplication-ptw__pasta16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 3,
+        "status": "existing_common_data_available"
+      },
+      "matrixtranspose__baseline16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 485,
+        "status": "existing_common_data_available"
+      },
+      "matrixtranspose__pasta16": {
+        "limits": "Not completed; do not infer missing counters from absent unfinished output.",
+        "missing": [],
+        "status": "await_existing_source"
+      },
+      "pagerank__baseline16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 1,
+        "status": "existing_common_data_available"
+      },
+      "pagerank__pasta16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 1,
+        "status": "existing_common_data_available"
+      },
+      "relu__baseline16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_service",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service"
+        ],
+        "pressure_windows": 1,
+        "status": "existing_common_data_available"
+      },
+      "relu__pasta16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_entry_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 1,
+        "status": "existing_common_data_available"
+      },
+      "simpleconvolution__baseline16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service"
+        ],
+        "pressure_windows": 2,
+        "status": "existing_common_data_available"
+      },
+      "simpleconvolution__pasta16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_entry_wait",
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 1,
+        "status": "existing_common_data_available"
+      },
+      "spmv__baseline16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 120,
+        "status": "existing_common_data_available"
+      },
+      "spmv__pasta16": {
+        "limits": "Raw logical lookup/flow counters and sampled pressure/stages only, not physical DRAM/SRAM traffic. An absent stage with no relevant events is not zero-cycle latency. Window averages lack observation denominators; do not claim an exact whole-run mean. New Neighbor/LATPC-only counters are not required for inactive controls.",
+        "missing": [],
+        "observed_stages": [
+          "gmmutlb_mshr_entry_wait",
+          "gmmutlb_mshr_wait",
+          "gmmutlb_pte_lookup_queue",
+          "gmmutlb_pte_lookup_service",
+          "iommucache_upper_level_latency",
+          "iommutlb_lookup_service",
+          "iommutlb_mshr_wait",
+          "local_gmmu_ptw_queue_wait",
+          "local_gmmu_ptw_service",
+          "shared_mmu_ptw_service",
+          "shared_mmu_pwqueue_wait"
+        ],
+        "pressure_windows": 123,
+        "status": "existing_common_data_available"
+      }
+    },
+    "control_data_counts": {
+      "await_existing_source": 1,
+      "existing_common_data_available": 27
+    },
+    "methods": [
+      "baseline16",
+      "pasta16",
+      "neighbor_abstract",
+      "latpc_simple"
+    ],
+    "reuse_rule": "Reuse old controls only when required common metrics are available. Supplement missing necessary data after checking raw traces; do not rerun for binary identity alone."
+  },
+  "R4": {
+    "limits": "R4 implementation/measurement gates remain separate; this scope amendment launches nothing",
+    "new_configurations": [
+      "pasta_no_plt"
+    ],
+    "new_runs_if_all_missing": 14,
+    "reference": "Reuse compatible existing PASTA-Full; no blanket default rerun"
+  },
+  "active_R2_R3_logical_points": 70,
+  "frozen_plan_unchanged": true,
+  "manifest_sha256": "6eeddf855facb394066fc73f805a11218c8078249afe3b30ea96b9b3efcbdcce",
+  "schema": 1,
+  "status": "user_approved",
+  "supplementary_measurements_launched": false
+}
