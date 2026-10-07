@@ -1,0 +1,21 @@
+{
+  "schema": 1,
+  "status": "user_approved_scope_amendment",
+  "experiment": "R3",
+  "question": "What additional benefit does upstream L2/IOTLB PTCL-aware MSHR admission provide beyond Neighbor and LATPC translation coalescing?",
+  "methods": ["baseline16", "pasta16", "neighbor_abstract", "latpc_simple"],
+  "benchmarks": "FULL14",
+  "logical_runs": 56,
+  "shared_with_R2": 28,
+  "excluded_methods": ["HDPAT"],
+  "HDPAT_required": false,
+  "configuration_changes": false,
+  "frozen_plan_changed": false,
+  "supersedes": "The frozen manifest's earlier five-way planning label only; execution configuration and qualification evidence are unchanged.",
+  "limits": [
+    "Neighbor and LATPC remain simplified aggregate-timing adaptations.",
+    "Formal performance results and post-run workgroup/configuration qualification are still required.",
+    "This scope does not establish exhaustive SOTA coverage or modern-AI-workload comparisons.",
+    "Negative performance results must be retained; PASTA superiority is a hypothesis, not an assumption."
+  ]
+}

@@ -44,7 +44,25 @@ Baseline16/PASTA16 points are shared rather than executed twice.
 **B20 is the user-approved provisional local-state estimate, not measured
 complete-system equal area.** Measured N_eq remains unknown. M1 is a nested
 demand-only substrate control, not an independent full-PASTA removal.
-**HDPAT is not implemented in this snapshot; full five-way R3 remains incomplete.**
+**The user-approved R3 scope is the four-way Baseline/PASTA/Neighbor/LATPC
+mechanism comparison. HDPAT is intentionally excluded, not a prerequisite
+or missing task for this scope.** See `provenance/r3-scope.json`.
+
+R3 asks what upstream L2/IOTLB PTCL-aware admission adds beyond Neighbor's
+walk-stage coalescing and LATPC's L1 compression/walker batching. Report
+driver time alongside L2/IOTLB MSHR occupancy/full cycles and waiting,
+successful downstream translation requests, TLB lookup work, page-walk
+queueing, and each method's actual coalescing/batching counters. These data
+test whether the earlier admission point relieves pressure not removed by
+the other methods; they do not presuppose that PASTA wins every workload.
+Retain negative results and workgroup-population qualification.
+
+This focused experiment does not claim exhaustive SOTA coverage or answer
+the separate modern-AI-workload comparison request. The frozen plan's old
+five-way planning label is superseded by this scope amendment. Its jobs,
+binary, source, and configuration fingerprints are deliberately unchanged,
+so existing downloads/runs remain compatible. Performance experiments and
+post-run evidence qualification are still required; CPU tests are not results.
 
 ## Simplified Models
 
