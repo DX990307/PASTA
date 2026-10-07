@@ -4,7 +4,8 @@
 
 R2/R3 的可运行包已加入，详见 [rebuttal/R2_R3_SIMPLE.md](rebuttal/R2_R3_SIMPLE.md)。
 冻结计划保留 84 个历史逻辑点；[最新范围](rebuttal/RESULT_REUSE.md) 排除 14 个 M1 点，
-复用 28 个 B/P 控制点，只新跑 B_Neq/Neighbor/LATPC 共 42 项，全部 FULL14。
+按用户最新要求，R3 重新跑 B/P/Neighbor/LATPC 56 项采集数据，另跑 R2 B_Neq 14 项，
+共 70 项，全部 FULL14。R2/R4 的旧对照仍可复用。
 用户自行选择一台远程机器执行，可设 15 或 5 并行。
 R2 使用已认可的估算 B20，不冒充完整等面积；R3 提供 Baseline/PASTA/Neighbor/LATPC
 四方简化机制比较；用户已明确本轮不纳入 HDPAT，不再作为 R3 的待实现项。

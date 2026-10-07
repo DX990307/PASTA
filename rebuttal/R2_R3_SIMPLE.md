@@ -30,8 +30,8 @@ Failed or unverified tasks are retained, never silently retried or overwritten.
 ## Matrix
 
 The frozen plan retains 84 historical logical points. The latest scope has
-70 active R2/R3 points: 14 M1 points are excluded, 28 ordinary controls are
-referenced, and only 42 new remote runs remain (B20/Neighbor/LATPC).
+70 active R2/R3 points: 14 M1 points are excluded, and all 70 remaining
+points are executed here (B20 plus fresh Baseline/PASTA/Neighbor/LATPC).
 See [RESULT_REUSE.md](RESULT_REUSE.md) and `provenance/r234-scope.json`.
 
 | Configuration | R2 | R3 | Local L2 MSHRs | Shared IOTLB MSHRs |
@@ -43,15 +43,13 @@ See [RESULT_REUSE.md](RESULT_REUSE.md) and `provenance/r234-scope.json`.
 | Neighbor abstract | no | comparison | 16 | 64 |
 | LATPC simple | no | comparison | 16 | 64 |
 
-R2 has 42 logical points (B16/B20/P16), with only B20's 14 points newly run.
-R3 has 56 logical points, sharing 28 Baseline16/PASTA16 points with R2.
-For R3, reuse is conditional on required common metric availability, not
-performance alone. The current audit finds 27 completed controls have the
-required raw common counters/trace schemas; MT/PASTA16 awaits its existing
-run. No supplementary control run is currently needed. If a new necessary
-metric is unavailable and cannot be derived from original traces, prepare
-and run only the corresponding supplementary control measurements. Their
-purpose is new data collection, not a binary-based performance rerun.
+R2 has 42 logical comparison points (B16/B20/P16), but adds only B20's 14
+runs; its controls can use existing results. R3 explicitly runs all four
+methods afresh for data collection, totaling 56 runs. Old R1/R6 controls are
+not substitutes, even though their common-data audit passed. Fresh R3 control
+results may also be reused for compatible comparisons later; do not launch
+a second copy merely to call it R2. Already started/completed attempts of
+this remote R3 campaign are retained; old result files are never overwritten.
 **B20 is the user-approved provisional local-state estimate, not measured
 complete-system equal area.** Measured N_eq remains unknown. M1 stays in its
 independent R10 family and is not required to finish R2/R3.

@@ -9,15 +9,15 @@ One physical run can supply multiple logical experiment references.
 ## R2/R3 Correction
 
 The frozen plan retains 84 logical configurations, not 84 mandatory new runs.
-`plans/r2-r3-reuse.json` assigns all 28 Baseline16/PASTA16 points to existing
-R1/R6 sources. The latest user scope excludes all 14 M1 points from R2/R3;
-M1's independent R10 jobs and results are not cancelled. Strictly
-verified completions are `reuse_external`; unfinished sources are
-`external_pending`, never reported as completed. The remote runner skips
-both reference categories and scope exclusions. Only B20, Neighbor and LATPC are new remote executions:
-**42 runs instead of 84**. A pending control is executed once by its existing
-owner, not separately in this package. R10 M1 ownership stays on its assigned
-R10 machine/local source queue; no ownership transfer is performed here.
+The latest explicit user instruction requires fresh R3 measurements for
+Baseline/PASTA as well as Neighbor/LATPC, regardless of old common-data
+availability. Old R1/R6 results no longer suppress the 28 R3 control launches.
+`plans/r2-r3-reuse.json` now contains only 14 M1 scope exclusions. The remote
+package therefore has **70 runs: R2 B20 x14 plus R3 four methods x14**.
+M1's independent R10 jobs/results and ownership are unchanged. Old controls
+remain available for R2/R4 and other compatible comparisons, not as substitutes
+for this explicitly requested fresh R3 collection. Existing attempts already
+started/completed within this remote R3 package are preserved and adopted.
 
 The other remote packages also have reuse sidecars. The R5 machine15 package
 now references its two qualified completed PageRank (4,16) controls rather
@@ -42,12 +42,10 @@ the existing paired demand-only composed-flow validation, not permission to
 reuse faulty old full-PASTA response paths. The M1 compatibility discussion
 is historical; M1 is no longer required for the narrowed R2/R3 scope.
 
-R3 controls need the necessary common data, not just old driver time. The
-current coverage audit in `provenance/r234-scope.json` finds 27 completed
-controls with raw common counters/trace schemas; MT/PASTA16 is still an
-existing-run dependency. New method-only counters are not required for
-inactive controls. Additional necessary missing data may justify a scoped
-supplementary run; they do not justify rerunning every default point.
+The old coverage audit in `provenance/r234-scope.json` is historical only.
+Its 27 completed controls/one pending old source do not gate the new R3 runs.
+This is an explicit data-collection exception to the general reuse-first rule;
+it does not authorize blanket reruns of other experiment groups.
 
 If a remote scheduler has already started, `git pull` alone does not update
 its running Python code. Stop only that scheduler, leaving detached workers
@@ -60,7 +58,7 @@ simulator/process kill. The updated script affects future launches only.
 | --- | --- |
 | R1 | Keep all qualified capacity points; fill only missing points. |
 | R2 | Reuse Baseline16/PASTA16; run only B_Neq (currently estimated B20). No M1 dependency. |
-| R3 | Run Neighbor/LATPC; reuse ordinary controls when necessary metrics exist, otherwise supplement only missing data. |
+| R3 | Explicit exception: fresh Baseline/PASTA/Neighbor/LATPC across FULL14 for common mechanism data. |
 | R4 | Reuse default PASTA and its read-only PLT shadow counters; add only missing legal no-PLT points. |
 | R5 | Reuse completed points of the same fixed-service walker model; do not substitute native/cache-dependent walks. |
 | R6 | Reuse ordinary PASTA and compatible existing no-Assist results. |

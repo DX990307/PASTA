@@ -42,12 +42,15 @@ class RemoteR23Tests(unittest.TestCase):
             self.assertEqual(rows[0]['wall_seconds'], '100')
             self.assertEqual(rows[0]['qualification'], 'pending strict central validation')
 
-    def test_reference_controls_are_not_new_launches(self):
+    def test_fresh_r3_controls_are_eligible_for_launch(self):
         refs = runner.load_reuse(self.manifest)
-        self.assertEqual(len(refs), 42)
+        self.assertEqual(len(refs), 14)
         remaining = [j for j in self.manifest['jobs'] if j['id'] not in refs]
-        self.assertEqual(len(remaining), 42)
-        self.assertEqual({j['config'] for j in remaining}, {'baseline_estimated20', 'neighbor_abstract', 'latpc_simple'})
+        self.assertEqual(len(remaining), 70)
+        self.assertEqual({j['config'] for j in remaining}, {'baseline16','pasta16','baseline_estimated20','neighbor_abstract','latpc_simple'})
+        with tempfile.TemporaryDirectory() as temp:
+            for job in remaining:
+                self.assertEqual(runner.execution_status(Path(temp)/job['id'],refs.get(job['id'])), 'queued')
 
     def test_external_reuse_and_pending_do_not_claim_completion(self):
         refs = runner.load_reuse(self.manifest)
@@ -74,7 +77,7 @@ class RemoteR23Tests(unittest.TestCase):
 
     def test_reuse_rejects_changed_configuration(self):
         manifest = copy.deepcopy(self.manifest)
-        job = next(j for j in manifest['jobs'] if j['config'] == 'baseline16')
+        job = next(j for j in manifest['jobs'] if j['config'] == 'm1_demand_only')
         job['command'].append('-changed-model=true')
         with self.assertRaises(RuntimeError): runner.load_reuse(manifest)
 
@@ -96,7 +99,7 @@ class RemoteR23Tests(unittest.TestCase):
         expected = {j['id'] for j in self.manifest['jobs'] if j['config'] == 'm1_demand_only'}
         self.assertEqual(excluded, expected)
         self.assertEqual(len(excluded), 14)
-        self.assertEqual(len(refs) - len(excluded), 28)
+        self.assertEqual(len(refs) - len(excluded), 0)
 
     def test_r3_old_controls_are_checked_for_data_not_only_runtime(self):
         scope = runner.read(runner.ROOT / 'provenance/r234-scope.json')
@@ -109,15 +112,16 @@ class RemoteR23Tests(unittest.TestCase):
                 self.assertGreater(record['pressure_windows'], 0)
         self.assertEqual(scope['R2']['new_runs'], 14)
         self.assertFalse(scope['R2']['M1_required'])
+        self.assertTrue(scope['R3']['fresh_control_collection'])
+        self.assertEqual(scope['R3']['fresh_runs'],56)
         self.assertEqual(scope['R4']['new_configurations'], ['pasta_no_plt'])
 
-    def test_missing_necessary_r3_data_requires_supplementary_preparation(self):
+    def test_old_data_availability_cannot_disable_fresh_r3(self):
         scope = copy.deepcopy(runner.read(runner.ROOT / 'provenance/r234-scope.json'))
-        key = next(k for k,r in scope['R3']['control_data_audit'].items() if r['status']=='existing_common_data_available')
-        scope['R3']['control_data_audit'][key]['status']='needs_supplementary_measurement'
+        scope['R3']['fresh_control_collection']=False
         original_read=runner.read
         with patch.object(runner,'read',side_effect=lambda p:scope if p.name=='r234-scope.json' else original_read(p)):
-            with self.assertRaisesRegex(RuntimeError,'supplementary data collection'):
+            with self.assertRaisesRegex(RuntimeError,'fresh control collection'):
                 runner.load_reuse(self.manifest)
 
 

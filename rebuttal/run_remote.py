@@ -23,12 +23,14 @@ def load_reuse(manifest, machine='r2-r3'):
     if policy.get('schema') != 1 or policy['manifest_sha256'] != digest(ROOT / 'plans' / (machine + '.json')):
         raise RuntimeError('Reuse policy belongs to a different frozen plan')
     jobs = {job['id']: job for job in manifest['jobs']}
-    controls = {key for key, job in jobs.items() if job['config'] in ('baseline16', 'pasta16', 'm1_demand_only')}
+    controls = {key for key, job in jobs.items() if job['config'] == 'm1_demand_only'}
     if machine == 'r2-r3' and set(policy['refs']) != controls:
-        raise RuntimeError('Reuse policy must assign every existing control exactly once')
+        raise RuntimeError('R3 must run fresh controls; only M1 scope exclusions may suppress launches')
     data_audit = None
     if machine == 'r2-r3':
         scope = read(ROOT / 'provenance/r234-scope.json')
+        if scope['R3'].get('fresh_control_collection') is not True:
+            raise RuntimeError('R3 fresh control collection is required by the current scope')
         data_audit = scope['R3']['control_data_audit']
         r3_controls = {key for key, job in jobs.items() if job['config'] in ('baseline16', 'pasta16')}
         if scope['manifest_sha256'] != policy['manifest_sha256'] or set(data_audit) != r3_controls:

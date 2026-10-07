@@ -472,13 +472,22 @@
       "await_existing_source": 1,
       "existing_common_data_available": 27
     },
+    "fresh_control_collection": true,
+    "fresh_methods": [
+      "baseline16",
+      "pasta16",
+      "neighbor_abstract",
+      "latpc_simple"
+    ],
+    "fresh_runs": 56,
+    "historical_control_data_audit_only": true,
     "methods": [
       "baseline16",
       "pasta16",
       "neighbor_abstract",
       "latpc_simple"
     ],
-    "reuse_rule": "Reuse old controls only when required common metrics are available. Supplement missing necessary data after checking raw traces; do not rerun for binary identity alone."
+    "reuse_rule": "Explicit user exception: collect fresh R3 data for all four methods. Existing R1/R6 control data are historical evidence, not substitutes. Already running/completed attempts from this R3 package are retained."
   },
   "R4": {
     "limits": "R4 implementation/measurement gates remain separate; this scope amendment launches nothing",
@@ -491,6 +500,7 @@
   "active_R2_R3_logical_points": 70,
   "frozen_plan_unchanged": true,
   "manifest_sha256": "6eeddf855facb394066fc73f805a11218c8078249afe3b30ea96b9b3efcbdcce",
+  "new_remote_R2_R3_executions": 70,
   "schema": 1,
   "status": "user_approved",
   "supplementary_measurements_launched": false
