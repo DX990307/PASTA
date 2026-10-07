@@ -1,12 +1,14 @@
 # Remote Rebuttal Runs
 
 R2/R3 新任务包见 [R2_R3_SIMPLE.md](R2_R3_SIMPLE.md)，启动脚本为
-`bash run_r2_r3.sh --workers 15`。包含 FULL14 的 84 项独立运行；
+`bash run_r2_r3.sh --workers 15`。包含 FULL14 的 84 个逻辑点；
+按 [复用规则](RESULT_REUSE.md) 引用 42 个控制点，只新跑 42 项；
 R2 的 B20 为估算容量，R3 的 Neighbor/LATPC 为简化模型；本轮 R3 明确不纳入 HDPAT，
 仅比较 Baseline/PASTA/Neighbor/LATPC 的机制差异。
 
 Linux x86_64、Python 3 标准库即可。bin/ 是冻结二进制，plans/ 是正式配置；不含结果。
-机器 B 跑 R5 的 66 项，最多 15 并行；机器 C 跑 R10 demand-only 的 42 项，最多 5 并行。
+机器 B 的 R5 包含 66 个分配点，现复用其中 2 个已完成点，只新跑剩余 64 项，最多 15 并行；
+机器 C 跑 R10 demand-only 的 42 项，最多 5 并行。以上为本次核验快照。
 原子配置来源和二进制 SHA-256 保存在各 plan 中。全部开启 AkitaRTM，max-wg=76800。
 
 ```bash

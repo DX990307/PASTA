@@ -1,0 +1,143 @@
+{
+  "limits": "Qualified completed sources only; other tasks retain their existing ownership-transfer gate.",
+  "manifest_sha256": "7814a29dd75627a9661f64674ee5963e83169976cb105c7f09667090a56f8c48",
+  "refs": {
+    "pagerank__g4_i16_baseline": {
+      "disposition": "reuse_external",
+      "evidence_files": [
+        {
+          "bytes": 6978,
+          "name": "state.json",
+          "sha256": "06c25455085c32d825ccad820211abfa695079f007e1ec8ed9dae8a134cddbad"
+        },
+        {
+          "bytes": 3580,
+          "name": "job.json",
+          "sha256": "d9826f7059b244885e66803b4e8682c8d91c2127b3550096572595581e565095"
+        },
+        {
+          "bytes": 6464493,
+          "name": "metrics.csv",
+          "sha256": "82071b247273669f19bc94d4e4e4894722d8dd509916877ff1b3bcd16c7bf1ac"
+        },
+        {
+          "bytes": 1234,
+          "name": "stdout.log",
+          "sha256": "86fbfaebfb3a230f7c1613cb1ae80c12669a2f9e991e46f20aba4bbdec0ada0e"
+        },
+        {
+          "bytes": 294,
+          "name": "completion.json",
+          "sha256": "cbad39b15ab1d40f91308c4368ee2cbd59799614966cad4bcb10f41abfe2ac8d"
+        },
+        {
+          "bytes": 271,
+          "name": "launch.json",
+          "sha256": "cfdcb670a760e47d5e92ccb16932e75c610b5c7ef0f2145aec60a88a8e4ccba4"
+        },
+        {
+          "bytes": 57,
+          "name": "worker.claim",
+          "sha256": "7e89e099b0b4ba6f334b939c7ad114c52a803ed2fcbe1dbffc7446229c5f501d"
+        },
+        {
+          "bytes": 0,
+          "name": "worker.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "bytes": 21945184,
+          "name": "metrics_workgroups.csv",
+          "sha256": "3d5e556da37e92c480c3f94ad5ab00ab59e67044a3ff66d3026c6d5e591d3cb2"
+        },
+        {
+          "bytes": 498,
+          "name": "metrics_translation_pressure.csv",
+          "sha256": "20a010233dcb3375595dd97501df9d64e3a013a7b0c9f1ae4a8e4f86ca004079"
+        },
+        {
+          "bytes": 616,
+          "name": "metrics_translation_breakdown.csv",
+          "sha256": "01b4119ba03bd4a53babf493ea4bc8466a6f610e2fca15395f24add061f33a5a"
+        }
+      ],
+      "limits": "Reuse old common counters only; absent new feature counters are not measured zero. Driver time is time to the recorded completion count; compare actual WG populations.",
+      "qualification": "Strict source evidence verified; cross-model compatibility audited",
+      "source_batch": "r5-pagerank-rtm-continuation-20261006",
+      "source_id": "pagerank__g4_i16_baseline",
+      "source_job_sha256": "a0999d2f01698bf856e74c817b24902cc0604ce5ab693141a4d3cd706d1c9a51",
+      "source_manifest_sha256": "ddde8eb91d0f0ba072dca20f476d6789de8950938e8c23d53216073eb5033f6b",
+      "source_status_at_audit": "completed",
+      "target_command_sha256": "a0999d2f01698bf856e74c817b24902cc0604ce5ab693141a4d3cd706d1c9a51"
+    },
+    "pagerank__g4_i16_pasta_full": {
+      "disposition": "reuse_external",
+      "evidence_files": [
+        {
+          "bytes": 6974,
+          "name": "state.json",
+          "sha256": "bba65d6beb2ad5a359b45b880e3bbe72f28eb6f777eaa71870ac77b317ca89bc"
+        },
+        {
+          "bytes": 3587,
+          "name": "job.json",
+          "sha256": "3a8a8ec06ada07c62cdd122b7f3d46ec7df125843388b75e1c3cb7fa573150af"
+        },
+        {
+          "bytes": 6452862,
+          "name": "metrics.csv",
+          "sha256": "57c5a4a28b9a7bf776734e37833939ba286a0d968a427352d6e3125de8151577"
+        },
+        {
+          "bytes": 1233,
+          "name": "stdout.log",
+          "sha256": "2e1273ff14c4a0c81898d8b27fccc6d11de1cf67f20b604aaa65f3b7638c0bb5"
+        },
+        {
+          "bytes": 294,
+          "name": "completion.json",
+          "sha256": "4cd8c459908fffab61ce861df5d3b662b060dc9b0162737b6df04d337bf25aee"
+        },
+        {
+          "bytes": 273,
+          "name": "launch.json",
+          "sha256": "a14e4bce4aa1899c77617b7da5e4fc2d019010cee43cd03243193cf097a2d42a"
+        },
+        {
+          "bytes": 57,
+          "name": "worker.claim",
+          "sha256": "75ddd175e6be761f9e987c950e5519373ccd34f75a39f2e831ec9ea7effc859e"
+        },
+        {
+          "bytes": 0,
+          "name": "worker.log",
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        {
+          "bytes": 21920079,
+          "name": "metrics_workgroups.csv",
+          "sha256": "3faf3137fd6c77a279b5ee395b6c06ef26fe72fe6293a0d8c903bb861a13890f"
+        },
+        {
+          "bytes": 496,
+          "name": "metrics_translation_pressure.csv",
+          "sha256": "b24225bfe7b13b676d5122ad9156818abe90b12a8cd820e73ea91ee673e44ce1"
+        },
+        {
+          "bytes": 928,
+          "name": "metrics_translation_breakdown.csv",
+          "sha256": "6308e9c522b72a0f5b68d20e96cdb314c398917b3c2915655a8027b4c51b66a4"
+        }
+      ],
+      "limits": "Reuse old common counters only; absent new feature counters are not measured zero. Driver time is time to the recorded completion count; compare actual WG populations.",
+      "qualification": "Strict source evidence verified; cross-model compatibility audited",
+      "source_batch": "r5-pagerank-rtm-continuation-20261006",
+      "source_id": "pagerank__g4_i16_pasta_full",
+      "source_job_sha256": "8f0cf745cd441b04c165d89c228c91c6f396171656468cf648bdd4ba0aab4b56",
+      "source_manifest_sha256": "ddde8eb91d0f0ba072dca20f476d6789de8950938e8c23d53216073eb5033f6b",
+      "source_status_at_audit": "completed",
+      "target_command_sha256": "8f0cf745cd441b04c165d89c228c91c6f396171656468cf648bdd4ba0aab4b56"
+    }
+  },
+  "schema": 1
+}

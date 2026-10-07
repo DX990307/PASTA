@@ -3,7 +3,8 @@
 ## R2/R3 新增任务包
 
 R2/R3 的可运行包已加入，详见 [rebuttal/R2_R3_SIMPLE.md](rebuttal/R2_R3_SIMPLE.md)。
-84 项新运行，全部 FULL14；用户自行选择一台远程机器执行，可设 15 或 5 并行。
+84 个逻辑点，全部 FULL14；[优先复用](rebuttal/RESULT_REUSE.md) 42 个控制点，只新跑 42 项。
+用户自行选择一台远程机器执行，可设 15 或 5 并行。
 R2 使用已认可的估算 B20，不冒充完整等面积；R3 提供 Baseline/PASTA/Neighbor/LATPC
 四方简化机制比较；用户已明确本轮不纳入 HDPAT，不再作为 R3 的待实现项。
 这个新增包不改变下方旧 R5/R10 的任务所有权。

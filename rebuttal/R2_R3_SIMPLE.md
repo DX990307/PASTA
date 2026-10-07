@@ -1,6 +1,7 @@
 # R2/R3 Remote Package
 
-This package contains new remote-only FULL14 jobs. It does not stop, replace,
+This package defines FULL14 logical jobs, with only the new configurations
+executed remotely and existing controls referenced. It does not stop, replace,
 or modify experiments running on the original machine. All jobs enable
 AkitaRTM, use 48 GPMs and max-wg=76800, and retain the frozen full-size inputs
 and corrected PageRank launch planner. The source snapshot derives from v12;
@@ -28,7 +29,9 @@ Failed or unverified tasks are retained, never silently retried or overwritten.
 
 ## Matrix
 
-84 unique runs: six configurations times all 14 benchmarks.
+84 logical configurations: six configurations times all 14 benchmarks.
+The reuse-first correction in [RESULT_REUSE.md](RESULT_REUSE.md) assigns
+42 control points to existing owners/results; only 42 new remote runs remain.
 
 | Configuration | R2 | R3 | Local L2 MSHRs | Shared IOTLB MSHRs |
 | --- | --- | --- | ---: | ---: |

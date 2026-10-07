@@ -1,0 +1,6 @@
+{
+  "limits": "Qualified completed sources only; other tasks retain their existing ownership-transfer gate.",
+  "manifest_sha256": "7ded6e6c721574a71d23cc7c7ac965b2bc950963df79eb4ab36de5e36c3b0965",
+  "refs": {},
+  "schema": 1
+}

@@ -15,6 +15,43 @@ import time
 
 ROOT = Path(__file__).resolve().parent
 
+def command_hash(command):
+    return hashlib.sha256(json.dumps(command, separators=(',', ':')).encode()).hexdigest()
+
+def load_reuse(manifest, machine='r2-r3'):
+    policy = read(ROOT / 'plans' / (machine + '-reuse.json'))
+    if policy.get('schema') != 1 or policy['manifest_sha256'] != digest(ROOT / 'plans' / (machine + '.json')):
+        raise RuntimeError('Reuse policy belongs to a different frozen plan')
+    jobs = {job['id']: job for job in manifest['jobs']}
+    controls = {key for key, job in jobs.items() if job['config'] in ('baseline16', 'pasta16', 'm1_demand_only')}
+    if machine == 'r2-r3' and set(policy['refs']) != controls:
+        raise RuntimeError('Reuse policy must assign every existing control exactly once')
+    for identity, ref in policy['refs'].items():
+        job = jobs.get(identity)
+        if (job is None or (machine == 'r2-r3' and job['config'] not in ('baseline16', 'pasta16', 'm1_demand_only'))
+                or ref['target_command_sha256'] != command_hash(job['command'])
+                or ref['disposition'] not in ('reuse_external', 'external_pending')
+                or not ref.get('source_batch') or not ref.get('source_id')):
+            raise RuntimeError('Invalid reference assignment: ' + identity)
+        if ref['disposition'] == 'reuse_external' and (ref['source_status_at_audit'] != 'completed' or not ref.get('evidence_files')):
+            raise RuntimeError('Reuse has no qualified completed source: ' + identity)
+    return policy['refs']
+
+def execution_status(directory, reference=None):
+    # Preserve previously started remote attempts even when a new reuse policy
+    # makes another source canonical; never kill or overwrite their evidence.
+    if (directory / 'completion.json').exists():
+        return 'exited' if read(directory / 'completion.json')['returncode'] == 0 else 'failed'
+    state = read(directory / 'state.json') if (directory / 'state.json').exists() else None
+    if state and state.get('status') == 'running':
+        current = identity(state['pid'])
+        return 'running' if current and state.get('identity') and current['start'] == state['identity']['start'] and current['state'] not in ('Z', 'X') else 'unverified'
+    if (directory / 'claim').exists() or (directory / 'launch.json').exists():
+        return 'unverified'
+    if reference:
+        return reference['disposition']
+    return 'queued'
+
 def flags(command):
     result = {}
     for arg in command[1:]:
@@ -59,7 +96,8 @@ def validate_r23(manifest):
                 if f.get(key, 'false') != 'false':
                     raise RuntimeError('R3 cannot mix PASTA and SOTA flags')
 
-def summary(output, manifest):
+def summary(output, manifest, refs=None):
+    refs = refs or {}
     rows = []
     for job in manifest['jobs']:
         directory = output / job['id']
@@ -71,10 +109,15 @@ def summary(output, manifest):
                 for row in csv.reader(handle):
                     if len(row) >= 4 and row[1].strip() == 'Driver' and row[2].strip() == 'total_time':
                         driver = row[3].strip()
+        reference = refs.get(job['id'], {})
+        status = execution_status(directory, reference)
+        external = status in ('reuse_external', 'external_pending')
         rows.append({'id': job['id'], 'benchmark': job['benchmark'], 'config': job['config'],
+                     'execution_status': status,
                      'returncode': completion.get('returncode', ''), 'driver_time_s': driver,
                      'wall_seconds': completion.get('wall_seconds', ''),
-                     'qualification': completion.get('qualification', 'not completed')})
+                     'source_batch': reference.get('source_batch', ''), 'source_id': reference.get('source_id', ''),
+                     'qualification': reference['qualification'] if external else completion.get('qualification', 'not completed')})
     temp = output / 'summary.csv.tmp'
     with temp.open('w', newline='') as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
@@ -158,8 +201,12 @@ def run(machine, transferred, check, workers=None):
         cmd = job['command']
         if '-disable-servers' in cmd or '-max-wg=76800' not in cmd:
             raise RuntimeError('Invalid formal configuration')
+    refs = load_reuse(manifest, machine)
     if check:
         print(json.dumps({'machine': machine, 'jobs': len(manifest['jobs']),
+                          'new_remote_jobs': len(manifest['jobs']) - len(refs),
+                          'completed_external_references': sum(r['disposition'] == 'reuse_external' for r in refs.values()),
+                          'pending_external_references': sum(r['disposition'] == 'external_pending' for r in refs.values()),
                           'workers': manifest['workers'], 'memavailable_gib': available(),
                           'binaries_verified': True}, indent=2))
         return
@@ -178,28 +225,21 @@ def run(machine, transferred, check, workers=None):
             write(plan_identity, current)
     launched = 0
     while True:
-        counts = {'queued': 0, 'running': 0, 'exited': 0, 'failed': 0, 'unverified': 0}
+        refs = load_reuse(manifest, machine)
+        counts = {'queued': 0, 'running': 0, 'exited': 0, 'failed': 0, 'unverified': 0,
+                  'reuse_external': 0, 'external_pending': 0}
         candidate = None
         for job in manifest['jobs']:
             directory = output / job['id']
-            state = read(directory / 'state.json') if (directory / 'state.json').exists() else None
-            if (directory / 'completion.json').exists():
-                status = 'exited' if read(directory / 'completion.json')['returncode'] == 0 else 'failed'
-            elif state and state.get('status') == 'running':
-                current = identity(state['pid'])
-                status = 'running' if current and state.get('identity') and current['start'] == state['identity']['start'] and current['state'] not in ('Z', 'X') else 'unverified'
-            elif (directory / 'claim').exists() or (directory / 'launch.json').exists():
-                status = 'unverified'
-            else:
-                status = 'queued'
+            status = execution_status(directory, refs.get(job['id']))
+            if status == 'queued':
                 if candidate is None:
                     candidate = job
             counts[status] += 1
         free = available()
         write(output / 'status.json', {'updated_at': time.time(), 'counts': counts,
               'memavailable_gib': free, 'workers': manifest['workers']})
-        if machine == 'r2-r3':
-            summary(output, manifest)
+        summary(output, manifest, refs)
         if counts['queued'] == 0 and counts['running'] == 0:
             print(json.dumps(counts), flush=True)
             return
