@@ -9,7 +9,7 @@ The ideal profile increases the IOMMU pending walk queue from 64 to 1024.
 The local GMMU uses admission into its active-walk slots rather than the
 same pending-queue structure; its upstream port buffers are unchanged.
 
-GPM: 8/24/80, both designs, 84 jobs, max-wg=78600 throughout.
+GPM: 8/24/80, both designs, 84 jobs, max-wg=76800 throughout.
 PTW and memory profiles keep the historical max-wg=76800.
 80-GPM jobs launch first. Default configurations are not rerun.
 
