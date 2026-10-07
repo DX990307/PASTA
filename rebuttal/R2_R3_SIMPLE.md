@@ -75,8 +75,10 @@ post-run evidence qualification are still required; CPU tests are not results.
 
 R4 will add only missing PASTA-no-PLT runs (14 if all are missing), referencing
 existing compatible PASTA-Full. No new default PASTA run is requested for R4.
-R4 preparation/measurement correctness remains a separate gate; this package
-does not contain or launch an R4 campaign.
+The combined [R2/R3/R4 wrapper](R2_R3_R4_REMOTE.md) now adds these 14
+no-PLT runs, referencing fresh R3 PASTA controls without another Full sweep.
+R4 uses inherited aggregate timing, not a physical port/maintenance model;
+the separate calibrated hardware-cost gate remains unresolved.
 
 ## Simplified Models
 

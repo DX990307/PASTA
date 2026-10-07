@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Portable frozen experiment runner with durable workers and restart adoption."""
 import argparse
+import copy
 import csv
 import fcntl
 import hashlib
@@ -19,6 +20,10 @@ def command_hash(command):
     return hashlib.sha256(json.dumps(command, separators=(',', ':')).encode()).hexdigest()
 
 def load_reuse(manifest, machine='r2-r3'):
+    if machine == 'r2-r3-r4':
+        return load_reuse(read(ROOT / 'plans/r2-r3.json'), 'r2-r3')
+    if machine == 'r4':
+        return {}
     policy = read(ROOT / 'plans' / (machine + '-reuse.json'))
     if policy.get('schema') != 1 or policy['manifest_sha256'] != digest(ROOT / 'plans' / (machine + '.json')):
         raise RuntimeError('Reuse policy belongs to a different frozen plan')
@@ -67,6 +72,11 @@ def execution_status(directory, reference=None):
         return reference['disposition']
     return 'queued'
 
+def other_running(output, manifest):
+    selected = {job['id'] for job in manifest['jobs']}
+    return sum(directory.is_dir() and directory.name not in selected
+               and execution_status(directory) == 'running' for directory in output.iterdir())
+
 def flags(command):
     result = {}
     for arg in command[1:]:
@@ -110,6 +120,36 @@ def validate_r23(manifest):
             for key in ('-gmmu-flex-tlb', '-mmutlb-flex-tlb', '-gmmu-idle-iommu-assist', '-gmmu-initial-ptcl-mode'):
                 if f.get(key, 'false') != 'false':
                     raise RuntimeError('R3 cannot mix PASTA and SOTA flags')
+
+def validate_r4(manifest, base):
+    controls = {job['benchmark']: job for job in base['jobs'] if job['config'] == 'pasta16'}
+    if (manifest['benchmarks'] != base['benchmarks'] or len(manifest['jobs']) != 14
+            or {j['benchmark'] for j in manifest['jobs']} != set(controls)
+            or len({j['id'] for j in manifest['jobs']}) != 14
+            or manifest['binaries'] != base['binaries']
+            or manifest['parent_manifest_sha256'] != digest(ROOT / 'plans/r2-r3.json')):
+        raise RuntimeError('R4 FULL14 matrix or frozen parent mismatch')
+    for job in manifest['jobs']:
+        control = controls[job['benchmark']]
+        got, expected = flags(job['command']), flags(control['command'])
+        expected['-gmmu-plt-disabled'] = 'true'
+        expected.pop('-metric-file-name')
+        got.pop('-metric-file-name', None)
+        if (got != expected or job['command'][0] != control['command'][0]
+                or job['id'] != job['benchmark'] + '__pasta_no_plt'
+                or job['config'] != 'pasta_no_plt' or job['akita_rtm_required'] is not True
+                or job['control_reference'] != control['id']):
+            raise RuntimeError('R4 must change only PLT removal: ' + job['id'])
+
+def load_manifest(machine):
+    if machine != 'r2-r3-r4':
+        return read(ROOT / 'plans' / (machine + '.json'))
+    base = read(ROOT / 'plans/r2-r3.json')
+    r4 = read(ROOT / 'plans/r4.json')
+    validate_r4(r4, base)
+    combined = copy.deepcopy(base)
+    combined['jobs'].extend(r4['jobs'])
+    return combined
 
 def summary(output, manifest, refs=None):
     refs = refs or {}
@@ -194,19 +234,27 @@ def worker(directory):
 def run(machine, transferred, check, workers=None):
     if platform.system() != 'Linux' or platform.machine() != 'x86_64':
         raise RuntimeError('Frozen binaries require Linux x86_64')
-    manifest = read(ROOT / 'plans' / (machine + '.json'))
+    manifest = load_manifest(machine)
     if workers is not None:
         if not 1 <= workers <= 15:
             raise RuntimeError('Workers must be between 1 and 15')
         manifest['workers'] = workers
-    if machine == 'r2-r3':
-        validate_r23(manifest)
+    if machine in ('r2-r3', 'r4', 'r2-r3-r4'):
+        validate_r23(read(ROOT / 'plans/r2-r3.json'))
         provenance = read(ROOT / 'provenance/r23-simple-v13.json')
         if (provenance.get('passed') is not True
                 or provenance['manifest_sha256'] != digest(ROOT / 'plans/r2-r3.json')
                 or provenance['archive_sha256'] != digest(ROOT / 'sources/source-r23-simple-v13.tar.gz')
                 or manifest['binaries'].get('simulator-r23-simple-v13') != provenance['binary_sha256']):
             raise RuntimeError('R2/R3 validation or source provenance mismatch')
+    if machine in ('r4', 'r2-r3-r4'):
+        validate_r4(read(ROOT / 'plans/r4.json'), read(ROOT / 'plans/r2-r3.json'))
+        audit = read(ROOT / 'provenance/r4-aggregate.json')
+        if (audit.get('passed') is not True or audit.get('no_gpu_workloads') is not True
+                or audit['manifest_sha256'] != digest(ROOT / 'plans/r4.json')
+                or audit['binary_sha256'] != manifest['binaries']['simulator-r23-simple-v13']
+                or audit['archive_sha256'] != digest(ROOT / 'sources/source-r23-simple-v13.tar.gz')):
+            raise RuntimeError('R4 component validation or provenance mismatch')
     for name, sha in manifest['binaries'].items():
         p = ROOT / 'bin' / name
         if digest(p) != sha:
@@ -228,17 +276,26 @@ def run(machine, transferred, check, workers=None):
         return
     if not transferred:
         raise RuntimeError('First remove these logical jobs from the source scheduler; then use --ownership-transferred')
-    output = ROOT / 'results' / machine
+    # Share the lock and original per-job directories across standalone/combined
+    # entrypoints, so existing R2/R3 workers are adopted, never launched twice.
+    output = ROOT / 'results' / ('r2-r3' if machine in ('r4', 'r2-r3-r4') else machine)
     output.mkdir(parents=True, exist_ok=True)
     lock = (output / 'scheduler.lock').open('a+')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    if machine == 'r2-r3':
+    if machine in ('r2-r3', 'r4', 'r2-r3-r4'):
         plan_identity = output / 'plan_identity.json'
         current = {'manifest_sha256': digest(ROOT / 'plans' / 'r2-r3.json')}
         if plan_identity.exists() and read(plan_identity) != current:
             raise RuntimeError('This results directory belongs to a different frozen plan')
         if not plan_identity.exists():
             write(plan_identity, current)
+        if machine in ('r4', 'r2-r3-r4'):
+            r4_identity = output / 'r4_plan_identity.json'
+            current_r4 = {'manifest_sha256': digest(ROOT / 'plans/r4.json')}
+            if r4_identity.exists() and read(r4_identity) != current_r4:
+                raise RuntimeError('This results directory belongs to a different R4 plan')
+            if not r4_identity.exists():
+                write(r4_identity, current_r4)
     launched = 0
     while True:
         refs = load_reuse(manifest, machine)
@@ -253,13 +310,15 @@ def run(machine, transferred, check, workers=None):
                     candidate = job
             counts[status] += 1
         free = available()
+        running_elsewhere = other_running(output, manifest)
         write(output / 'status.json', {'updated_at': time.time(), 'counts': counts,
-              'memavailable_gib': free, 'workers': manifest['workers']})
+              'memavailable_gib': free, 'workers': manifest['workers'],
+              'running_other_jobs_in_shared_directory': running_elsewhere})
         summary(output, manifest, refs)
         if counts['queued'] == 0 and counts['running'] == 0:
             print(json.dumps(counts), flush=True)
             return
-        if candidate and counts['running'] < manifest['workers'] and free >= 30 + candidate['estimated_peak_gib'] and time.monotonic() - launched >= 60:
+        if candidate and counts['running'] + running_elsewhere < manifest['workers'] and free >= 30 + candidate['estimated_peak_gib'] and time.monotonic() - launched >= 60:
             directory = output / candidate['id']
             directory.mkdir(exist_ok=True)
             job = dict(candidate)
@@ -277,7 +336,7 @@ def run(machine, transferred, check, workers=None):
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser()
-    p.add_argument('--machine', choices=['machine15', 'machine5', 'r2-r3'])
+    p.add_argument('--machine', choices=['machine15', 'machine5', 'r2-r3', 'r4', 'r2-r3-r4'])
     p.add_argument('--workers', type=int)
     p.add_argument('--ownership-transferred', action='store_true')
     p.add_argument('--check', action='store_true')

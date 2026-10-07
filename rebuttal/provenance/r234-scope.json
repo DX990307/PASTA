@@ -490,12 +490,14 @@
     "reuse_rule": "Explicit user exception: collect fresh R3 data for all four methods. Existing R1/R6 control data are historical evidence, not substitutes. Already running/completed attempts from this R3 package are retained."
   },
   "R4": {
-    "limits": "R4 implementation/measurement gates remain separate; this scope amendment launches nothing",
+    "limits": "Runnable PLT-only ablation under inherited aggregate timing; physical port/maintenance modeling remains unresolved. Packaging launches nothing.",
+    "remote_plan": "plans/r4.json",
+    "qualification": "inherited_aggregate_lookup_not_physical_port_model",
     "new_configurations": [
       "pasta_no_plt"
     ],
     "new_runs_if_all_missing": 14,
-    "reference": "Reuse compatible existing PASTA-Full; no blanket default rerun"
+    "reference": "Use the same PASTA16 controls collected for R3; no additional PASTA-Full sweep"
   },
   "active_R2_R3_logical_points": 70,
   "frozen_plan_unchanged": true,

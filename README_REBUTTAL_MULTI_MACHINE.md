@@ -1,5 +1,10 @@
 # PASTA Rebuttal: Three-Machine Experiment Plan
 
+最新 R2/R3/R4 合并任务包见 [启动说明](rebuttal/R2_R3_R4_REMOTE.md)。
+`bash rebuttal/run_r2_r3_r4.sh --workers 15` 在同一台机器的同一队列里执行
+R2 14 + R3 56 + R4 14 = 84 次，R4 复用 R3 的 PASTA 对照，不另跑 Full。
+R4 是既有 aggregate lookup 模型的 no-PLT 消融，不是物理 SRAM 端口模型。
+
 ## R2/R3 新增任务包
 
 R2/R3 的可运行包已加入，详见 [rebuttal/R2_R3_SIMPLE.md](rebuttal/R2_R3_SIMPLE.md)。

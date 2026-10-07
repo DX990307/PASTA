@@ -1,5 +1,9 @@
 # Remote Rebuttal Runs
 
+R2/R3/R4 的合并启动入口是 `bash run_r2_r3_r4.sh --workers 15`，
+共 84 次新运行，三组共享并行上限。完整命令与 R4 模型限制见
+[R2_R3_R4_REMOTE.md](R2_R3_R4_REMOTE.md)。只上传脚本、配置、源码和二进制，不传结果。
+
 R2/R3 新任务包见 [R2_R3_SIMPLE.md](R2_R3_SIMPLE.md)，启动脚本为
 `bash run_r2_r3.sh --workers 15`。包含 FULL14 的 84 个逻辑点；
 按 [最新范围和复用规则](RESULT_REUSE.md) 排除 14 个 M1 点，
