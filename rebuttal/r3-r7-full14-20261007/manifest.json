@@ -1,9 +1,13 @@
 {
   "binaries": {
-    "bin/simulator-r3-r6-v13": "988dc359f240a199d0c9eb1a48ac9d8c51e1eacddd32358d745760bfba186a4c",
+    "bin/simulator-r3-r6-v13": "c5119a03bc530120e5332199e59c2f4a6c12d7c26ceb94ad1404a46ce3b791d5",
     "bin/simulator-r7-assist-rtm-v2": "5fb54ceed7e46ce62f7da03dd1326c24327f32f76851fbdc094396925868fe5a"
   },
   "created_at": "2026-10-07T15:14:58.488204+00:00",
+  "hotfix": {
+    "id": "r3-simple-command-compat-v14",
+    "scope": "Remove the erroneous internal requirement for -ptw-demand-pte-only; historical commands are unchanged."
+  },
   "job_count": 144,
   "jobs": [
     {
@@ -8666,7 +8670,7 @@
   },
   "schema": 1,
   "sources": {
-    "sources/source-r3-r6-v13.tar.gz": "c5ec430f453def1264fff91bde38f80156fb4613266d54665078e9090e90dcc1",
+    "sources/source-r3-r6-v13.tar.gz": "8cc9c280896e9b52211aa97f71e7859596f364299e11be0cf33cad6a37faf78f",
     "sources/source-r7-assist-rtm-v2.tar.gz": "57c533c8f6858768c2f3857d2ae63ddb53b0e7e35b5018f396b5b2af23c5114d"
   }
 }

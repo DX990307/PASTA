@@ -39,3 +39,24 @@ python3 remote_campaign_runner.py status
 The supervisor keeps at most 16 simulations live and launches another only
 when at least 30 GiB of host `MemAvailable` remains. It detects stale state on
 restart and resumes unfinished jobs without rerunning completed points.
+
+## v14 Hotfix
+
+The original package binary incorrectly required `-ptw-demand-pte-only` for
+Neighbor/LATPC even though the preserved pre-rebuttal commands do not contain
+that flag. v14 removes only that internal requirement; no experiment command
+or timing parameter changes.
+
+If the original package already recorded failed Neighbor/LATPC jobs, stop only
+the supervisor with `Ctrl-C` (active simulations are retained), pull this
+hotfix, and run:
+
+```bash
+python3 retry_v14.py
+python3 verify_package.py
+./run.sh
+```
+
+`retry_v14.py` resets only R3 Neighbor/LATPC failures whose logs contain the
+known configuration-guard panic. It preserves each old state as
+`state.pre-v14.json` and does not touch completed, running, or unrelated jobs.
