@@ -54,3 +54,15 @@ vanilla/akkalat/.codex-400latency-build
 vanilla/akkalat/host_ptcl_probe/ptcl_probe
 vanilla/akita/noc/acceptance/pcie_p2p_domained/pcie_p2p_domained
 vanilla/mgpusim/samples/llmop/llmop
+
+/bin/
+/manifest.json
+/configs-before-launch.json
+/results/
+/supervisor.lock
+/admission-paused.json
+/after-current-status.json
+__pycache__/
+*.pyc
+
+/after-current.lock

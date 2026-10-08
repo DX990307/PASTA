@@ -61,6 +61,7 @@ type GMMUTLB struct {
 	localReqCount                int
 	iommuReqCount                int
 	pteLookupLatencyCycles       int
+	pltExtraLatencyCycles        int
 	pteLookupWaitingQueue        []pteLookupJob
 	pteLookupInflight            []pteLookupJob
 	pteLookupGroups              map[pteLookupGroupKey]*pteLookupGroup
@@ -367,10 +368,10 @@ func (tlb *GMMUTLB) usePTCLSetLookup() bool {
 
 func (tlb *GMMUTLB) ptclSetLookupLatencyCycles() int {
 	if tlb.pteLookupLatencyCycles <= 0 {
-		return tlb.pteLookupLatencyCycles
+		return tlb.pteLookupLatencyCycles + tlb.pltExtraLatencyCycles
 	}
 
-	return 2 * tlb.pteLookupLatencyCycles
+	return 2*tlb.pteLookupLatencyCycles + tlb.pltExtraLatencyCycles
 }
 
 func (tlb *GMMUTLB) usePTCLSerialLookup() bool {

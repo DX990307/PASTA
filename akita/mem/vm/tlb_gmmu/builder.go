@@ -43,6 +43,7 @@ type Builder struct {
 	flexPromotionThreshold int
 	ptclSerialLookup       bool
 	pteLookupLatencyCycles int
+	pltExtraLatencyCycles  int
 	idleIOMMUAssistEnabled bool
 	sharedPTWState         PTWStateProvider
 }
@@ -107,6 +108,14 @@ func (b Builder) WithPerVPNMSHRBaseline(enabled bool) Builder {
 
 func (b Builder) WithPTELookupLatencyCycles(cycles int) Builder {
 	b.pteLookupLatencyCycles = cycles
+	return b
+}
+
+func (b Builder) WithPLTExtraLatencyCycles(cycles int) Builder {
+	if cycles < 0 {
+		panic("PLT extra latency must be nonnegative")
+	}
+	b.pltExtraLatencyCycles = cycles
 	return b
 }
 
@@ -245,6 +254,7 @@ func (b Builder) Build(name string) *GMMUTLB {
 	tlb.ptclSerialLookup = b.ptclSerialLookup
 	tlb.gmmuCacheTable = b.gmmuCacheTable
 	tlb.pteLookupLatencyCycles = b.pteLookupLatencyCycles
+	tlb.pltExtraLatencyCycles = b.pltExtraLatencyCycles
 	tlb.idleIOMMUAssistEnabled = b.idleIOMMUAssistEnabled
 	tlb.sharedPTWState = b.sharedPTWState
 	lowThres := b.ptclLowThres

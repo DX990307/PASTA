@@ -629,6 +629,7 @@ func (b *R9NanoGPUBuilder) buildGMMUCache() {
 		WithInitialPTCLMode(*gmmuInitialPTCLMode).
 		WithPerVPNMSHRBaseline(*gmmuVPNMSHRBaseline).
 		WithPTELookupLatencyCycles(*gmmuPTELookupLatency).
+		WithPLTExtraLatencyCycles(*gmmuPLTExtraLatency).
 		WithPTELookupSlots(*gmmuPTELookupSlots).
 		WithPTCLSerialLookup(*gmmuPTCLSerialLookup).
 		WithIdleIOMMUAssist(*gmmuIdleIOMMUAssist).
