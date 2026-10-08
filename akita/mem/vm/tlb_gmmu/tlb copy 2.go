@@ -367,11 +367,8 @@ func (tlb *GMMUTLB) usePTCLSetLookup() bool {
 }
 
 func (tlb *GMMUTLB) ptclSetLookupLatencyCycles() int {
-	if tlb.pteLookupLatencyCycles <= 0 {
-		return tlb.pteLookupLatencyCycles + tlb.pltExtraLatencyCycles
-	}
-
-	return 2*tlb.pteLookupLatencyCycles + tlb.pltExtraLatencyCycles
+	// This parameter is the entire PTCL set lookup latency; no PTE base term.
+	return tlb.pltExtraLatencyCycles
 }
 
 func (tlb *GMMUTLB) usePTCLSerialLookup() bool {

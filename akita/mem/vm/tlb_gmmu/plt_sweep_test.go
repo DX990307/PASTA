@@ -3,7 +3,7 @@ package tlb_gmmu
 import "testing"
 
 func TestPLTRowsAndExtraLookupLatency(t *testing.T) {
-	for _, c := range []struct{ rows, extra, total int }{{16, 32, 96}, {64, 128, 192}, {128, 256, 320}} {
+	for _, c := range []struct{ rows, extra, total int }{{16, 32, 32}, {64, 128, 128}, {128, 256, 256}} {
 		d := newPTCLCoverageDirectory(16, 16, c.rows/16, 12)
 		rows := 0
 		for _, set := range d.sets {
@@ -18,7 +18,7 @@ func TestPLTRowsAndExtraLookupLatency(t *testing.T) {
 		}
 	}
 	original := &GMMUTLB{pteLookupLatencyCycles: 32}
-	if got := original.ptclSetLookupLatencyCycles(); got != 64 {
+	if got := original.ptclSetLookupLatencyCycles(); got != 0 {
 		t.Fatalf("default latency changed to %d", got)
 	}
 }

@@ -74,7 +74,7 @@ def build_jobs(historical):
                          "configuration": {"gpm_count":48, "cus_per_gpm":32, "gmmu_ptw_count":4, "iommu_ptw_count":16,
                              "iommu_pw_queue_capacity":64, "plt_total_rows":rows if mode == "pasta" else None,
                              "plt_sets":16, "plt_rows_per_set":rows//16 if mode == "pasta" else None,
-                             "plt_extra_cycles":extra, "ptcl_set_lookup_cycles":64+extra if mode == "pasta" else None,
+                             "plt_extra_cycles":extra, "ptcl_set_lookup_cycles":extra if mode == "pasta" else None,
                              "gmmu_pte_lookup_cycles":32, "gmmu_lookup_slots":8, "max_wg":76800}})
     return jobs
 

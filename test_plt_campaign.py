@@ -21,7 +21,7 @@ class PLTCampaignTest(unittest.TestCase):
                 rows, extra = runner.PROFILES[j['profile']]
                 self.assertEqual(int(f['-gmmu-flex-pcd-ways']) * 16, rows)
                 self.assertEqual(int(f['-gmmu-plt-extra-latency']), extra)
-                self.assertEqual(c['ptcl_set_lookup_cycles'], 64+extra)
+                self.assertEqual(c['ptcl_set_lookup_cycles'], extra)
             else:
                 self.assertNotIn('-gmmu-plt-extra-latency', f)
             changed = {'-gmmu-flex-pcd-ways','-gmmu-plt-extra-latency'}

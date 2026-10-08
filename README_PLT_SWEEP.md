@@ -10,11 +10,11 @@ PLT 行数指每个 GMMU 的整个 locator 总行数，不是每个 set 的行�
 
 | PLT 总行数 | 每 set 行数 | 额外延迟 cycles | PTCL set lookup 总 cycles |
 | --- | ---: | ---: | ---: |
-| 16 | 1 | 32 | 96 |
-| 64 | 4 | 128 | 192 |
-| 128 | 8 | 256 | 320 |
+| 16 | 1 | 32 | 32 |
+| 64 | 4 | 128 | 128 |
+| 128 | 8 | 256 | 256 |
 
-总延迟为 `2 × 32 + extra`。新增参数 `-gmmu-plt-extra-latency` 只作用于已有 PTCL set lookup 路径。该实验同时改变 PLT 容量和额外延迟，不能把结果单独归因于容量。
+总延迟直接为 **32/128/256 cycles**，不再加入 `2 × 32` 或任何 PTE 基础延迟。为兼容命令，保留参数名 `-gmmu-plt-extra-latency`，但该参数现在表示整个 PTCL lookup 延迟。参数 `-gmmu-plt-extra-latency` 只作用于已有 PTCL set lookup 路径。该实验同时改变 PLT 容量和额外延迟，不能把结果单独归因于容量。
 
 ## 任务
 
@@ -43,10 +43,14 @@ python3 after_current_sweep.py \
   --workers 17
 ```
 
-当前已通过 tmux 会话 `plt-after-ptw` 设置等待启动。状态见 `after-current-status.json`，等待日志见 `results/after-current.log`，启动后调度日志见 `results/supervisor.log`。前一轮只结束正在运行的17个任务不够，还必须处理完其余队列。新实验最大并发17，启动间隔至少20秒，要求可用内存至少30 GiB。
+此前的 tmux 等待启动已按用户要求取消；当前不自动启动。状态见 `after-current-status.json`，等待日志见 `results/after-current.log`，启动后调度日志见 `results/supervisor.log`。前一轮只结束正在运行的17个任务不够，还必须处理完其余队列。新实验最大并发17，启动间隔至少20秒，要求可用内存至少30 GiB。
 
 ## 结果限制
 
 性能取 Driver.total_time：`speedup=Baseline_time/PASTA_time`，`improvement=(speedup-1)*100%`。只汇总已完成配对。
 
 此参考源码没有严格 MT 工作组坐标校验，也没有导入 MT correctness fixes。进程返回0并产出正的 Driver time不证明完整输入覆盖或数值正确。MT原始问题仍可能出现。max-WG=76800的截断采样也不等于完整 kernel 执行；不同版本之间不可直接混用指标。
+
+## 延迟修正记录
+
+旧二进制和配置保存在 `archives/with-2x32-before-correction-20261008/`。本轮56个任务仍未启动。普通 PTE lookup（包括 Baseline）仍为32 cycles；仅取消 PASTA PTCL lookup 的基础64 cycles。
