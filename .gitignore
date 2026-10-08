@@ -1,0 +1,9 @@
+/bin/
+/manifest.json
+/configs-before-launch.json
+/results/
+/.gocache/
+/supervisor.lock
+/admission-paused.json
+__pycache__/
+*.pyc

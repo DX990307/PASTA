@@ -1,0 +1,18 @@
+{
+  "original_copied_files_unchanged": 1443,
+  "changed_original_files": [
+    "akita/mem/vm/mmu/builder.go",
+    "akita/mem/vm/mmu/mmu.go",
+    "akita/mem/vm/tlb_gmmu/builder.go",
+    "akita/mem/vm/tlb_gmmu/tlb copy 2.go",
+    "akkalat/400latency/runner/r9nanobuilder.go",
+    "akkalat/400latency/runner/timingplatform.go"
+  ],
+  "no_formal_experiments_started": true,
+  "validation": {
+    "python_command_tests": "4 passed",
+    "actual_resource_builder_tests": "passed",
+    "targeted_PLT_latency_test": "passed",
+    "legacy_full_tlb_gmmu_suite": "not usable: original TLB/MockSet tests do not compile; unchanged"
+  }
+}

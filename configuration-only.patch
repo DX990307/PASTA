@@ -1,0 +1,153 @@
+--- original/akita/mem/vm/mmu/builder.go
++++ independent/akita/mem/vm/mmu/builder.go
+@@ -15,6 +15,7 @@
+ 	migrationServiceProvider sim.Port
+ 	maxNumReqInFlight        int
+ 	pageWalkingLatency       int
++	pwQueueCapacity          int
+ 	InnerLoop                map[uint64]uint64
+ 	MiddleLoop               map[uint64]uint64
+ 	topModule                sim.Port
+@@ -30,6 +31,7 @@
+ 		freq:                  1 * sim.GHz,
+ 		log2PageSize:          12,
+ 		maxNumReqInFlight:     16,
++		pwQueueCapacity:       64,
+ 		walkCoalescingEnabled: true,
+ 	}
+ }
+@@ -110,6 +112,14 @@
+ 	return b
+ }
+ 
++func (b Builder) WithPWQueueCapacity(capacity int) Builder {
++	if capacity <= 0 {
++		panic("PW queue capacity must be positive")
++	}
++	b.pwQueueCapacity = capacity
++	return b
++}
++
+ // Build returns a newly created MMU component
+ func (b Builder) Build(name string) *MMU {
+ 	mmu := new(MMU)
+@@ -127,6 +137,7 @@
+ 	mmu.MigrationServiceProvider = b.migrationServiceProvider
+ 	mmu.migrationQueueSize = 4096
+ 	mmu.maxRequestsInFlight = b.maxNumReqInFlight
++	mmu.pwQueueCapacity = b.pwQueueCapacity
+ 	mmu.latency = b.pageWalkingLatency
+ 	mmu.PageAccessedByDeviceID = make(map[uint64][]uint64)
+ 	mmu.GMMUCacheTable = b.GMMUCacheTable
+--- original/akita/mem/vm/mmu/mmu.go
++++ independent/akita/mem/vm/mmu/mmu.go
+@@ -54,8 +54,9 @@
+ 	twoLevelCoalescedCount  int
+ 
+ 	// PWqueue        []sim.Msg
+-	PWqueue        []PWqueue
+-	GMMUCacheTable *mem.MultiPageFinder
++	PWqueue         []PWqueue
++	pwQueueCapacity int
++	GMMUCacheTable  *mem.MultiPageFinder
+ }
+ 
+ // Tick defines how the MMU update state each cycle
+@@ -408,7 +409,7 @@
+ 		}
+ 	}
+ 
+-	for len(mmu.PWqueue) < 64 {
++	for len(mmu.PWqueue) < mmu.pwQueueCapacity {
+ 		if len(mmu.mockBuffer) == 0 {
+ 			break
+ 		}
+--- original/akita/mem/vm/tlb_gmmu/builder.go
++++ independent/akita/mem/vm/tlb_gmmu/builder.go
+@@ -44,6 +44,7 @@
+ 	ptclLineSize            int
+ 	ptclSerialLookup        bool
+ 	pteLookupLatencyCycles  int
++	pltExtraLatencyCycles   int
+ 	idleIOMMUAssistEnabled  bool
+ 	ptclResidencyProfile    bool
+ 	ptclResidencyWindow     int
+@@ -118,6 +119,14 @@
+ 
+ func (b Builder) WithPTELookupLatencyCycles(cycles int) Builder {
+ 	b.pteLookupLatencyCycles = cycles
++	return b
++}
++
++func (b Builder) WithPLTExtraLatencyCycles(cycles int) Builder {
++	if cycles < 0 {
++		panic("PLT extra latency must be nonnegative")
++	}
++	b.pltExtraLatencyCycles = cycles
+ 	return b
+ }
+ 
+@@ -278,6 +287,7 @@
+ 	tlb.ptclSerialLookup = b.ptclSerialLookup
+ 	tlb.gmmuCacheTable = b.gmmuCacheTable
+ 	tlb.pteLookupLatencyCycles = b.pteLookupLatencyCycles
++	tlb.pltExtraLatencyCycles = b.pltExtraLatencyCycles
+ 	tlb.idleIOMMUAssistEnabled = b.idleIOMMUAssistEnabled
+ 	tlb.ptclResidencyProfileEnabled = b.ptclResidencyProfile
+ 	tlb.ptclMSHRLifetimeProfileEnabled = b.ptclMSHRLifetimeProfile
+--- original/akita/mem/vm/tlb_gmmu/tlb copy 2.go
++++ independent/akita/mem/vm/tlb_gmmu/tlb copy 2.go
+@@ -62,6 +62,7 @@
+ 	localReqCount                  int
+ 	iommuReqCount                  int
+ 	pteLookupLatencyCycles         int
++	pltExtraLatencyCycles          int
+ 	pteLookupWaitingQueue          []pteLookupJob
+ 	pteLookupInflight              []pteLookupJob
+ 	pteLookupGroups                map[pteLookupGroupKey]*pteLookupGroup
+@@ -399,10 +400,10 @@
+ 
+ func (tlb *GMMUTLB) ptclSetLookupLatencyCycles() int {
+ 	if tlb.pteLookupLatencyCycles <= 0 {
+-		return tlb.pteLookupLatencyCycles
+-	}
+-
+-	return 2 * tlb.pteLookupLatencyCycles
++		return tlb.pteLookupLatencyCycles + tlb.pltExtraLatencyCycles
++	}
++
++	return 2*tlb.pteLookupLatencyCycles + tlb.pltExtraLatencyCycles
+ }
+ 
+ func (tlb *GMMUTLB) usePTCLSerialLookup() bool {
+--- original/akkalat/400latency/runner/r9nanobuilder.go
++++ independent/akkalat/400latency/runner/r9nanobuilder.go
+@@ -631,6 +631,7 @@
+ 		WithInitialPTCLMode(*gmmuInitialPTCLMode).
+ 		WithPerVPNMSHRBaseline(*gmmuVPNMSHRBaseline).
+ 		WithPTELookupLatencyCycles(*gmmuPTELookupLatency).
++		WithPLTExtraLatencyCycles(*gmmuPLTExtraLatency).
+ 		WithPTELookupSlots(*gmmuPTELookupSlots).
+ 		WithPTCLSerialLookup(*gmmuPTCLSerialLookup).
+ 		WithPTCLLineSize(*gmmuPTCLLineSize).
+@@ -667,7 +668,7 @@
+ 		WithFreq(b.freq).
+ 		WithDeviceID(b.gpuID).
+ 		WithLog2PageSize(b.log2PageSize).
+-		WithMaxNumReqInFlight(4).
++		WithMaxNumReqInFlight(*gmmuPTWCount).
+ 		WithPageTable(b.pageTable).
+ 		WithPageWalkingLatency(500).
+ 		WithLowModule(b.mmu.GetPortByName("Top")).
+--- original/akkalat/400latency/runner/timingplatform.go
++++ independent/akkalat/400latency/runner/timingplatform.go
+@@ -402,7 +402,8 @@
+ 		WithFreq(1 * sim.GHz).
+ 		WithPageWalkingLatency(500).
+ 		WithLog2PageSize(b.log2PageSize).
+-		WithMaxNumReqInFlight(16).
++		WithMaxNumReqInFlight(*iommuPTWCount).
++		WithPWQueueCapacity(*iommuPWQueueCapacity).
+ 		WithPageTable(pageTable).
+ 		WithGMMUCacheTable(gmmuCacheTable).
+ 		WithWalkCoalescing(*mmuWalkCoalescing).
