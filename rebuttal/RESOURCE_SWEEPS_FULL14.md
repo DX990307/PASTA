@@ -29,7 +29,7 @@ cd resource-sweeps-full14-20261007
 # bash build.sh
 python3 prepare.py --groups GPM PTW MEM -j 17
 tmux new -s resource-sweeps
-python3 remote_campaign_runner.py run
+python3 remote_campaign_runner.py run --groups PTW MEM
 ```
 
 Detach with Ctrl-b d. Inspect from another terminal:
@@ -50,5 +50,18 @@ Prepare all three groups before starting:
 python3 prepare.py --groups GPM PTW MEM -j 17
 ```
 
-This produces 252 jobs. Do not regenerate a different matrix in a directory
+This produces 252 jobs. PTW/MEM run together, at most 17 concurrent jobs.
+GPM jobs remain queued until explicitly launched separately:
+
+```bash
+python3 remote_campaign_runner.py run --groups GPM
+```
+
+80-GPM jobs run at most 8 concurrently. While any managed 80-GPM job remains
+active, total managed concurrency stays at most 8. For 8/24 GPM, it rises to 17.
+Use one supervisor at a time; stop the previous supervisor with Ctrl-C first.
+Stopping retains active simulations. Group filtering does not stop previously
+launched simulations from other groups. No SOTA LLM command is included.
+
+Do not regenerate a different matrix in a directory
 that already contains running or completed jobs.
