@@ -43,7 +43,7 @@ python3 after_current_sweep.py \
   --workers 17
 ```
 
-此前的 tmux 等待启动已按用户要求取消；当前不自动启动。状态见 `after-current-status.json`，等待日志见 `results/after-current.log`，启动后调度日志见 `results/supervisor.log`。前一轮只结束正在运行的17个任务不够，还必须处理完其余队列。新实验最大并发17，启动间隔至少20秒，要求可用内存至少30 GiB。
+此前等待曾被取消，后已恢复；现在等待程序负责PTW结束时提高PLT并发，见后续章节。状态见 `after-current-status.json`，等待日志见 `results/after-current.log`，启动后调度日志见 `results/supervisor.log`。前一轮只结束正在运行的17个任务不够，还必须处理完其余队列。新实验最大并发17，启动间隔至少20秒，要求可用内存至少30 GiB。
 
 ## 结果限制
 
@@ -53,4 +53,8 @@ python3 after_current_sweep.py \
 
 ## 延迟修正记录
 
-旧二进制和配置保存在 `archives/with-2x32-before-correction-20261008/`。本轮56个任务仍未启动。普通 PTE lookup（包括 Baseline）仍为32 cycles；仅取消 PASTA PTCL lookup 的基础64 cycles。
+旧二进制和配置保存在 `archives/with-2x32-before-correction-20261008/`。本轮后续已改为与PTW低并发运行，见下一节。普通 PTE lookup（包括 Baseline）仍为32 cycles；仅取消 PASTA PTCL lookup 的基础64 cycles。
+
+## 与PTW并行启动
+
+按用户后续要求，PLT先以1个并发任务与PTW的18个任务同时运行，总计最多19个。PTW整个84任务队列结束后，`after_current_sweep.py`会停止PLT的低并发admission supervisor（保留worker和模拟器），再以17并发接管PLT。mesh仍等PTW与PLT两轮全部结束；IOTLB容量仍排在mesh后。此变动只涉及等待/调度脚本，模拟器代码、任务命令和延迟不变。

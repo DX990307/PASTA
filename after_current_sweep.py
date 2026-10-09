@@ -4,6 +4,8 @@ from collections import Counter
 from datetime import datetime, timezone
 import fcntl
 import json
+import os
+import signal
 from pathlib import Path
 import subprocess
 import time
@@ -54,6 +56,33 @@ def main():
             temporary.replace(ROOT / 'after-current-status.json')
             print(json.dumps(state), flush=True)
             if state['ready']:
+                # PLT may already be running at low concurrency alongside PTW.
+                # Stop its admission supervisor, retaining independent workers,
+                # then resume with the requested full concurrency.
+                supervisors = []
+                for proc in Path('/proc').iterdir():
+                    if not proc.name.isdigit():
+                        continue
+                    try:
+                        cmd = [x.decode(errors='replace') for x in (proc / 'cmdline').read_bytes().split(b'\0') if x]
+                        cwd = Path(os.readlink(proc / 'cwd'))
+                        if cwd == ROOT and any(x.endswith('remote_campaign_runner.py') for x in cmd) and 'run' in cmd:
+                            supervisors.append(int(proc.name))
+                    except OSError:
+                        pass
+                if len(supervisors) > 1:
+                    raise RuntimeError('Multiple PLT supervisors found; refusing to scale')
+                for pid in supervisors:
+                    os.kill(pid, signal.SIGTERM)
+                    for _ in range(120):
+                        try:
+                            if not Path(f'/proc/{pid}/cmdline').read_bytes():
+                                break
+                        except OSError:
+                            break
+                        time.sleep(0.25)
+                    else:
+                        raise RuntimeError('PLT supervisor did not stop; workers retained')
                 with (ROOT / 'results' / 'supervisor.log').open('a') as output:
                     subprocess.run(['python3', str(ROOT / 'remote_campaign_runner.py'), 'run', '--groups', 'PTW', '--workers', str(args.workers)], cwd=ROOT, stdout=output, stderr=subprocess.STDOUT, check=True)
                 return
