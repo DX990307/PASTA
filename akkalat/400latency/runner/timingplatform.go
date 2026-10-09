@@ -592,7 +592,7 @@ func (b *R9NanoPlatformBuilder) createIOMMUTLB(
 		WithEngine(b.engine).
 		WithFreq(1 * sim.GHz).
 		WithNumWays(32).
-		WithNumSets(64).
+		WithNumSets(iotlbSetCount()).
 		WithNumMSHREntry(64).
 		WithMSHREntryDepth(64).
 		WithNumReqPerCycle(32).
