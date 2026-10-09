@@ -1,0 +1,9 @@
+{
+  "mt_width": 4096,
+  "pasta_idle_iommu_assist": false,
+  "pasta_iotlb_set_as_line": false,
+  "mt_source_sha256": "277ecc8ebe7e5c8bb584c0238703dd606b420765df17a20b419d8768fb03a12b",
+  "source_provenance_json": "Original source reference; MT width changed to4096 subsequently",
+  "scope_task": "IOTLB",
+  "jobs": 56
+}

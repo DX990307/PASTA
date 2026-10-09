@@ -9,12 +9,18 @@ class IOTLBTest(unittest.TestCase):
         self.assertEqual({j['config_name'] for j in jobs},{'base_iotlb_half','pasta_iotlb_half','base_iotlb_double','pasta_iotlb_double'})
         for j in jobs:
             flags=runner.normalized(j['command']);old=runner.normalized(j['historical_command'])
-            self.assertEqual({k:v for k,v in flags.items() if k!='-iotlb-num-sets'},old)
+            changed={'-iotlb-num-sets','-gmmu-idle-iommu-assist','-mmutlb-flex-tlb'}
+            self.assertEqual({k:v for k,v in flags.items() if k not in changed},{k:v for k,v in old.items() if k not in changed})
             sets=32 if j['profile']=='iotlb_half' else 128
             self.assertEqual(int(flags['-iotlb-num-sets']),sets)
             c=j['configuration'];self.assertEqual((c['iotlb_num_ways'],c['iotlb_mshrs'],c['iotlb_entries']),(32,64,sets*32))
             self.assertEqual((c['gmmu_ptw_count'],c['iommu_ptw_count']),(4,16))
             self.assertNotIn('-gmmu-plt-extra-latency',flags)
+            if j['mode']=='pasta':
+                self.assertEqual(flags['-gmmu-idle-iommu-assist'],'false')
+                self.assertEqual(flags['-mmutlb-flex-tlb'],'false')
+            if j['benchmark']=='matrixtranspose':
+                self.assertEqual(j['configuration']['matrixtranspose_width'],4096)
     def test_waits_for_queued_or_stale(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d);(p/'manifest.json').write_text(json.dumps({'job_count':1,'jobs':[{'id':'a'}]}))

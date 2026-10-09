@@ -15,7 +15,7 @@
 
 与上一个mesh实验采用同一历史FULL14输入、Baseline与PASTA功能命令，仅加入IOTLB set参数。网络恢复常规配置：32 cycles、768 GB/s（`-switch-latency=32 -bandwidth=48`），不继承mesh敏感性点。
 
-PTW保持参考源码默认4/16，IOMMU PW queue64，48 GPM × 32 CU，原cache/TLB组织、GMMU lookup32 cycles与8 slots、max-WG76800。PASTA保留Flex+idle-IOMMU assist；Baseline保留历史per-VPN MSHR、`-mmutlb-demand-pte-only`，不额外新增runall2的`-ptw-demand-pte-only`。
+PTW保持参考源码默认4/16，IOMMU PW queue64，48 GPM × 32 CU，原cache/TLB组织、GMMU lookup32 cycles与8 slots、max-WG76800。PASTA保留本地GMMU Flex，关闭idle-IOMMU assist及IOTLB set-as-line；Baseline保留历史per-VPN MSHR、`-mmutlb-demand-pte-only`，不额外新增runall2的`-ptw-demand-pte-only`。
 
 这里的“其他默认”是前述历史标准运行参数加参考源码未覆盖的默认值，不是删除公共参数后使用CLI的低带宽等原始缺省值。参考原有PTCL lookup64 cycles保留，不额外设置PLT延迟；现有PTW和PLT实验目录不受影响。
 

@@ -1,0 +1,1 @@
+Current revision: MT width = 4096 (4096 x 4096); PASTA flag -gmmu-idle-iommu-assist=false. Disables offloading local translation requests; mandatory remote-page IOMMU routing remains. PTW sweep Baseline retains -ptw-demand-pte-only=true. Changed PASTA and all MT attempts archived; unchanged non-MT Baseline results retained.
