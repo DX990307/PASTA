@@ -8,11 +8,16 @@ class MeshTest(unittest.TestCase):
         self.assertEqual(len(jobs),56);self.assertEqual(len({j['id'] for j in jobs}),56)
         self.assertEqual({j['config_name'] for j in jobs},{'base_meshlat64','pasta_meshlat64','base_meshbw384','pasta_meshbw384'})
         for j in jobs:
-            flags=runner.normalized(j['command']);old=runner.normalized(j['historical_command']);changed={'-switch-latency','-bandwidth'}
+            flags=runner.normalized(j['command']);old=runner.normalized(j['historical_command']);changed={'-switch-latency','-bandwidth','-gmmu-idle-iommu-assist','-mmutlb-flex-tlb'}
             self.assertEqual({k:v for k,v in flags.items() if k not in changed},{k:v for k,v in old.items() if k not in changed})
             expected=(64,48,768) if j['profile']=='meshlat64' else (32,24,384)
             self.assertEqual((int(flags['-switch-latency']),int(flags['-bandwidth']),j['configuration']['mesh_bandwidth_gb_s']),expected)
             self.assertNotIn('-gmmu-plt-extra-latency',flags)
+            if j['mode']=='pasta':
+                self.assertEqual(flags['-gmmu-idle-iommu-assist'],'false')
+                self.assertEqual(flags['-mmutlb-flex-tlb'],'false')
+            if j['benchmark']=='matrixtranspose':
+                self.assertEqual(j['configuration']['matrixtranspose_width'],4096)
             self.assertEqual(j['configuration']['gmmu_ptw_count'],4)
         for benchmark in runner.BENCHMARKS:
             for profile in runner.PROFILES:

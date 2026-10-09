@@ -1,6 +1,6 @@
 # Mesh latency / bandwidth sensitivity study
 
-分支：`mesh-sensitivity-20261008`。Base 为干净的 `hyperscan-current-20260619`，commit `4b5e718c052f2d459cd713b3ee5c73d724092c4c`。**所有模拟器 Go 源码保持原样，没有导入其他分支的修复或延迟修改。**
+分支：`mesh-sensitivity-20261008`。Base 为干净的 `hyperscan-current-20260619`，commit `4b5e718c052f2d459cd713b3ee5c73d724092c4c`。MT Width调整为4096；没有导入其他分支的修复或延迟修改。
 
 ## 四组配置
 
@@ -15,9 +15,9 @@
 
 ## 固定设置与任务
 
-采用历史FULL14 benchmark输入与Baseline/PASTA机制开关，**仅替换 `-switch-latency` 和 `-bandwidth`**，另将metrics路径定位到本实验包。PASTA使用Flex + idle-IOMMU assist；Baseline保留历史per-VPN MSHR和`-mmutlb-demand-pte-only`，不新增`-ptw-demand-pte-only`。
+采用历史FULL14 benchmark输入与Baseline/PASTA机制开关，**仅替换 `-switch-latency` 和 `-bandwidth`**，另将metrics路径定位到本实验包。PASTA使用本地GMMU Flex，关闭idle-IOMMU assist及IOTLB set-as-line；Baseline保留历史per-VPN MSHR和`-mmutlb-demand-pte-only`，不新增`-ptw-demand-pte-only`。
 
-原参考源码的PTW默认值保持4/16，IOMMU pending walk queue保持64，48 GPM × 32 CU，原cache/TLB组织、lookup slots=8、普通PTE lookup=32 cycles、max-WG=76800及输入全部保持。
+原参考源码的PTW默认值保持4/16，IOMMU pending walk queue保持64，48 GPM × 32 CU，原cache/TLB组织、lookup slots=8、普通PTE lookup=32 cycles、max-WG=76800及除MT以外的输入全部保持。
 
 **本mesh实验保留参考分支原有的PTCL set lookup=64 cycles，不添加PLT额外延迟。** 当前运行PTW及排队PLT的“去掉2×32”修正在各自目录中保留，本实验不改动它们。三个campaign不能混用性能结果。
 
@@ -46,12 +46,12 @@ python3 after_previous_sweeps.py \
 
 ## 代码变动清单
 
-没有改动已有模拟器源码。仅新增：
+MT源码的Width已改为4096。原始准备阶段新增：
 
 - `remote_campaign_runner.py`：四组mesh配置、独立worker和结果配对。
 - `after_previous_sweeps.py`：等待PTW和PLT两轮结束再启动。
 - `test_mesh_campaign.py`：只改变mesh参数、带宽换算与启动条件检查。
-- `build.sh`：构建未经修改的参考Go源码，生成冻结配置。
+- `build.sh`：构建当前实验Go源码（MT为4096×4096），生成冻结配置。
 - `historical_commands.json`：复制原benchmark/Baseline/PASTA命令，不含历史性能结果。
 - 本README和`source-provenance.json`：配置与源码一致性记录。
 

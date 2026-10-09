@@ -72,6 +72,16 @@ def build_jobs(historical):
                                  "iommu_ptw_count":16,"iommu_pw_queue_capacity":64,"max_wg":76800,
                                  "gmmu_pte_lookup_cycles":32,"gmmu_lookup_slots":8,
                                  "reference_ptcl_set_lookup_cycles":64 if mode == "pasta" else None}})
+    for job in jobs:
+        job["command"] = [a for a in job["command"] if not a.startswith("-gmmu-idle-iommu-assist")]
+        if job["mode"] == "pasta":
+            job["command"].insert(-1, "-gmmu-idle-iommu-assist=false")
+            job["command"] = [a for a in job["command"] if not a.startswith("-mmutlb-flex-tlb")]
+            job["command"].insert(-1, "-mmutlb-flex-tlb=false")
+            job["configuration"]["iotlb_set_as_line_enabled"] = False
+        job["configuration"]["idle_iommu_assist_enabled"] = False
+        if job["benchmark"] == "matrixtranspose":
+            job["configuration"]["matrixtranspose_width"] = 4096
     return jobs
 
 
