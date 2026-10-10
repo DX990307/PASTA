@@ -188,7 +188,7 @@ func SelectBenchmark(name string, driver *driver.Driver) benchmarks.Benchmark {
 		benchmark = matrixmultiplication
 	case "matrixtranspose":
 		matrixtranspose := matrixtranspose.NewBenchmark(driver)
-		matrixtranspose.Width = 11520
+		matrixtranspose.Width = 4096
 		benchmark = matrixtranspose
 	case "nbody":
 		nbody := nbody.NewBenchmark(driver)

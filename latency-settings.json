@@ -1,0 +1,13 @@
+{
+  "reference_profile": "plt32",
+  "plt_total_rows": 32,
+  "plt_sets": 16,
+  "plt_rows_per_set": 2,
+  "latency_cycles": [
+    0,
+    16,
+    32,
+    128
+  ],
+  "source_package": "/home/ubuntu/PASTA-resource-sweeps/PASTA-plt-row-sweep-20261008"
+}

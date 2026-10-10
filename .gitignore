@@ -68,3 +68,8 @@ __pycache__/
 /after-current.lock
 
 /archives/
+
+/local-partition.json
+/concurrent-launch.json
+/after-previous-status.json
+/after-previous.lock

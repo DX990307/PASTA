@@ -24,7 +24,7 @@ RESULTS = ROOT / "results"
 BENCHMARKS = ["matrixtranspose", "matrixmultiplication-ptw", "aes", "bitonicsort",
               "fastwalshtransform", "fft", "fir", "floydwarshall", "im2col", "kmeans",
               "pagerank", "relu", "simpleconvolution", "spmv"]
-PROFILES = {"plt16": (16, 32), "plt64": (64, 128), "plt128": (128, 256)}
+PROFILES = {"lat0": 0, "lat16": 16, "lat32": 32, "lat128": 128}
 MODES = {"baseline": "baseline", "pasta": "ptcl_mode_flex_iommu_assist"}
 
 
@@ -53,29 +53,23 @@ def normalized(command):
 
 
 def build_jobs(historical):
+    reference = json.loads((ROOT / "reference-jobs.json").read_text())
+    settings = json.loads((ROOT / "latency-settings.json").read_text())
     jobs = []
     for benchmark in BENCHMARKS:
-        points = [("baseline", "baseline", 0, 0)] + [(p, "pasta", rows, extra) for p, (rows, extra) in PROFILES.items()]
-        for profile, mode, rows, extra in points:
-            reference = historical[benchmark][MODES[mode]]
-            original = reference["command"]
-            command = ["bin/simulator", *(a for a in original[1:] if not a.startswith("-metric-file-name=") and not a.startswith("-gmmu-flex-pcd-ways="))]
-            command.append(f"-gmmu-flex-pcd-ways={rows//16 if mode == 'pasta' else 0}")
+        base = next(j for j in reference if j["benchmark"] == benchmark and j["mode"] == "baseline")
+        pasta = next(j for j in reference if j["benchmark"] == benchmark and j["profile"] == settings["reference_profile"])
+        for profile, mode, cycles in [("baseline", "baseline", None)] + [(p, "pasta", c) for p, c in PROFILES.items()]:
+            job = json.loads(json.dumps(base if mode == "baseline" else pasta))
+            job["id"] = f"PLTLAT__{profile}__{mode}__{benchmark}"
+            job["profile"] = profile
+            job["scope_task"] = "PTW"
             if mode == "pasta":
-                command.append(f"-gmmu-plt-extra-latency={extra}")
-            command.append("-metric-file-name={RESULT_DIR}/metrics")
-            flags = normalized(command)
-            unchanged = {k:v for k,v in flags.items() if k not in {"-gmmu-flex-pcd-ways", "-gmmu-plt-extra-latency"}}
-            expected = {k:v for k,v in normalized(original).items() if k != "-gmmu-flex-pcd-ways"}
-            if unchanged != expected:
-                raise RuntimeError("Unexpected historical command changes")
-            jobs.append({"id": f"PLT__{profile}__{mode}__{benchmark}", "scope_task": "PTW", "benchmark": benchmark,
-                         "profile": profile, "mode": mode, "command": command, "historical_command": original,
-                         "configuration": {"gpm_count":48, "cus_per_gpm":32, "gmmu_ptw_count":4, "iommu_ptw_count":16,
-                             "iommu_pw_queue_capacity":64, "plt_total_rows":rows if mode == "pasta" else None,
-                             "plt_sets":16, "plt_rows_per_set":rows//16 if mode == "pasta" else None,
-                             "plt_extra_cycles":extra, "ptcl_set_lookup_cycles":extra if mode == "pasta" else None,
-                             "gmmu_pte_lookup_cycles":32, "gmmu_lookup_slots":8, "max_wg":76800}})
+                job["command"] = [a for a in job["command"] if not a.startswith("-gmmu-plt-extra-latency=")]
+                job["command"].insert(-1, f"-gmmu-plt-extra-latency={cycles}")
+                job["configuration"]["plt_extra_cycles"] = cycles
+                job["configuration"]["ptcl_set_lookup_cycles"] = cycles
+            jobs.append(job)
     return jobs
 
 
@@ -93,11 +87,11 @@ def prepare():
              if f.is_file() and f.suffix == ".go"}
     write_json(MANIFEST, {"created_at": now(), "job_count": len(jobs), "jobs": jobs,
                         "source_snapshot": "PASTA-hyperscan-current-20260619 local working-tree copy",
-                        "source_git_head": snapshot["git_head"], "binaries": {"bin/simulator": digest(binary)},
+                        "source_git_head": snapshot["git_head"], "binaries": {"bin/simulator": digest(binary), "bin/simulator-mt4096": digest(ROOT / "bin/simulator-mt4096")},
                         "sources": files, "max_parallel": 17, "reserve_gib": 30,
                         "launch_interval_seconds": 20, "poll_seconds": 10,
-                        "reuse_policy": "No historical performance results imported; resume skips completed configurations regardless of binary provenance.",
-                        "source_changes": "PLT extra latency control only; reference row control varies PLT capacity. Fixed original PTW 4/16. No correctness fixes."})
+                        "reuse_policy": "Reuse only exact-command, identical-binary completed points from the current PLT row campaign.",
+                        "source_changes": "No simulator changes relative to current PLT campaign. Only PLT lookup latency varies; capacity fixed by latency-settings.json."})
     write_json(ROOT / "configs-before-launch.json", [{"id": j["id"], "command": j["command"],
                "configuration": j["configuration"]} for j in jobs])
     print(f"Prepared {len(jobs)} jobs; MT first, MM second; no benchmarks launched")
@@ -105,8 +99,8 @@ def prepare():
 
 def load_manifest():
     manifest = json.loads(MANIFEST.read_text())
-    if len(manifest["jobs"]) != 56 or len({j["id"] for j in manifest["jobs"]}) != 56:
-        raise RuntimeError("Invalid PLT 56-job list")
+    if len(manifest["jobs"]) != 70 or len({j["id"] for j in manifest["jobs"]}) != 70:
+        raise RuntimeError("Invalid PLT latency 70-job list")
     # Freeze checks prevent editing an active package, not reuse by binary identity.
     for relative, expected in {**manifest["binaries"], **manifest["sources"]}.items():
         if digest(ROOT / relative) != expected:
@@ -236,10 +230,20 @@ def run(manifest, workers):
         print("Supervisor stopped; existing workers and simulators are left running", flush=True)
 
 
+def select_partition(jobs, partition):
+    if partition == "first20":
+        return jobs[:20]
+    if partition == "last50":
+        return jobs[20:]
+    return jobs
+
+
 def summary(jobs):
     rows = []
     for benchmark in BENCHMARKS:
-        base = next(j for j in jobs if j["benchmark"] == benchmark and j["mode"] == "baseline")
+        base = next((j for j in jobs if j["benchmark"] == benchmark and j["mode"] == "baseline"), None)
+        if base is None:
+            continue
         bs = read_state(base)
         for profile in PROFILES:
             job = next(j for j in jobs if j["benchmark"] == benchmark and j["profile"] == profile)
@@ -261,12 +265,15 @@ def main():
     parser.add_argument("--groups", choices=["PTW"], default="PTW")
     parser.add_argument("--workers", type=int)
     parser.add_argument("--job")
+    local_partition = ROOT / "local-partition.json"
+    default_partition = json.loads(local_partition.read_text())["partition"] if local_partition.exists() else "all"
+    parser.add_argument("--partition", choices=["all", "first20", "last50"], default=default_partition)
     args = parser.parse_args()
     if args.action == "prepare":
         prepare()
         return
     manifest = load_manifest()
-    jobs = manifest["jobs"]
+    jobs = select_partition(manifest["jobs"], args.partition)
     if args.action == "list":
         for job in jobs:
             print(job["id"], shlex.join(command_for(job)))
@@ -280,7 +287,7 @@ def main():
         workers = args.workers if args.workers is not None else manifest["max_parallel"]
         if workers <= 0:
             parser.error("workers must be positive")
-        run(manifest, workers)
+        run({**manifest, "jobs": jobs}, workers)
 
 
 if __name__ == "__main__":

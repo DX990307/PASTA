@@ -7,4 +7,5 @@ if [[ -f manifest.json ]]; then
 fi
 mkdir -p bin
 (cd akkalat && go build -buildvcs=false -o ../bin/simulator ./400latency)
+cp bin/simulator bin/simulator-mt4096
 python3 remote_campaign_runner.py prepare
