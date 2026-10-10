@@ -1,0 +1,1706 @@
+[
+  {
+    "rows": 16,
+    "ways": 1,
+    "invocation": [
+      "python3",
+      "runall2.py",
+      "--configs",
+      "ptcl_mode_flex_iommu_assist",
+      "--gmmu-flex-pcd-ways",
+      "1"
+    ],
+    "experiment_count": 19,
+    "workloads": [
+      "bitonicsort",
+      "relu",
+      "spmv",
+      "matrixmultiplication",
+      "matrixtranspose",
+      "fastwalshtransform",
+      "fft",
+      "kmeans",
+      "im2col",
+      "aes",
+      "floydwarshall",
+      "pagerank",
+      "simpleconvolution",
+      "fir",
+      "resnet",
+      "llmop",
+      "llminference",
+      "matrixmultiplication-ptw",
+      "matrixmultiplication-ptw-heavy"
+    ],
+    "experiments": [
+      {
+        "target": "400latency",
+        "benchmark": "bitonicsort",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "relu",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "spmv",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "matrixmultiplication",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "matrixtranspose",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "fastwalshtransform",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "fft",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "kmeans",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "im2col",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "aes",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "floydwarshall",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "pagerank",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "simpleconvolution",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "fir",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "resnet",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "llmop",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "llminference",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "matrixmultiplication-ptw",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "matrixmultiplication-ptw-heavy",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=1"
+        ]
+      }
+    ]
+  },
+  {
+    "rows": 64,
+    "ways": 4,
+    "invocation": [
+      "python3",
+      "runall2.py",
+      "--configs",
+      "ptcl_mode_flex_iommu_assist",
+      "--gmmu-flex-pcd-ways",
+      "4"
+    ],
+    "experiment_count": 19,
+    "workloads": [
+      "bitonicsort",
+      "relu",
+      "spmv",
+      "matrixmultiplication",
+      "matrixtranspose",
+      "fastwalshtransform",
+      "fft",
+      "kmeans",
+      "im2col",
+      "aes",
+      "floydwarshall",
+      "pagerank",
+      "simpleconvolution",
+      "fir",
+      "resnet",
+      "llmop",
+      "llminference",
+      "matrixmultiplication-ptw",
+      "matrixmultiplication-ptw-heavy"
+    ],
+    "experiments": [
+      {
+        "target": "400latency",
+        "benchmark": "bitonicsort",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "relu",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "spmv",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "matrixmultiplication",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "matrixtranspose",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "fastwalshtransform",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "fft",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "kmeans",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "im2col",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "aes",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "floydwarshall",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "pagerank",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "simpleconvolution",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "fir",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "resnet",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "llmop",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "llminference",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "matrixmultiplication-ptw",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "matrixmultiplication-ptw-heavy",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=4"
+        ]
+      }
+    ]
+  },
+  {
+    "rows": 128,
+    "ways": 8,
+    "invocation": [
+      "python3",
+      "runall2.py",
+      "--configs",
+      "ptcl_mode_flex_iommu_assist",
+      "--gmmu-flex-pcd-ways",
+      "8"
+    ],
+    "experiment_count": 19,
+    "workloads": [
+      "bitonicsort",
+      "relu",
+      "spmv",
+      "matrixmultiplication",
+      "matrixtranspose",
+      "fastwalshtransform",
+      "fft",
+      "kmeans",
+      "im2col",
+      "aes",
+      "floydwarshall",
+      "pagerank",
+      "simpleconvolution",
+      "fir",
+      "resnet",
+      "llmop",
+      "llminference",
+      "matrixmultiplication-ptw",
+      "matrixmultiplication-ptw-heavy"
+    ],
+    "experiments": [
+      {
+        "target": "400latency",
+        "benchmark": "bitonicsort",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "relu",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "spmv",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "matrixmultiplication",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "matrixtranspose",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "fastwalshtransform",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "fft",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "kmeans",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "im2col",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "aes",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "floydwarshall",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "pagerank",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "simpleconvolution",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "fir",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "resnet",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "llmop",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "llminference",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "matrixmultiplication-ptw",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      },
+      {
+        "target": "400latency",
+        "benchmark": "matrixmultiplication-ptw-heavy",
+        "config_name": "ptcl_mode_flex_iommu_assist",
+        "flags": [
+          "-max-wg=76800",
+          "-gmmu-initial-ptcl-mode=false",
+          "-gmmu-ptcl-threshold-low=4",
+          "-gmmu-ptcl-threshold-high=16",
+          "-gmmu-flex-tlb",
+          "-gmmu-flex-promotion-threshold=3",
+          "-mmutlb-flex-tlb",
+          "-gmmu-idle-iommu-assist"
+        ],
+        "common_flags": [
+          "-timing",
+          "-num-memory-banks=16",
+          "-bandwidth=48",
+          "-switch-latency=32",
+          "-magic-memory-copy",
+          "-report-all",
+          "-mmutlb-ptcl-return-latency=80",
+          "-gmmu-num-req-per-cycle=128",
+          "-gmmu-pte-lookup-latency=32",
+          "-gmmu-pte-lookup-slots=4",
+          "-gmmu-flex-pcd-ways=8"
+        ]
+      }
+    ]
+  }
+]

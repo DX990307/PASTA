@@ -1,0 +1,10 @@
+{
+  "reference": "/home/ubuntu/PASTA-resource-sweeps/PASTA-hyperscan-current-20260619",
+  "changed_go_files": [
+    "akkalat/benchmarkselection/benchmark.go"
+  ],
+  "runall2_sha256": "4992919023781bd6d278718a37fdb09eca38641442654a3208fddc2ae627758a",
+  "mt_width": 4096,
+  "latency_cycles": 64,
+  "latency_implementation": "Unchanged reference: 2 x PTE lookup latency32 =64cycles"
+}

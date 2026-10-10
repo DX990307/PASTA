@@ -1,0 +1,44 @@
+{
+  "total": 57,
+  "local_total": 38,
+  "remote_total": 19,
+  "local_rows": [
+    16,
+    64
+  ],
+  "remote_rows": [
+    128
+  ],
+  "remote_workloads": [
+    "bitonicsort",
+    "relu",
+    "spmv",
+    "matrixmultiplication",
+    "matrixtranspose",
+    "fastwalshtransform",
+    "fft",
+    "kmeans",
+    "im2col",
+    "aes",
+    "floydwarshall",
+    "pagerank",
+    "simpleconvolution",
+    "fir",
+    "resnet",
+    "llmop",
+    "llminference",
+    "matrixmultiplication-ptw",
+    "matrixmultiplication-ptw-heavy"
+  ],
+  "remote_command": [
+    "python3",
+    "runall2.py",
+    "--configs",
+    "ptcl_mode_flex_iommu_assist",
+    "--gmmu-flex-pcd-ways",
+    "8"
+  ],
+  "latency_cycles": 64,
+  "mt_width": 4096,
+  "baseline": "reuse old results; no baseline runs"
+}
